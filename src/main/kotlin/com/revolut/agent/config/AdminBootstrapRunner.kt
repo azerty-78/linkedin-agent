@@ -20,16 +20,16 @@ class AdminBootstrapRunner(
 
 	private val log = LoggerFactory.getLogger(javaClass)
 
-	override fun run(args: ApplicationArguments?) {
+	override fun run(args: ApplicationArguments) {
 		appUserRepository.count()
 			.flatMap { count ->
 				if (count > 0) {
-					return@flatMap Mono.empty()
+					return@flatMap Mono.empty<Void>()
 				}
 
 				val admin = AppUser(
 					email = bootstrapProperties.adminEmail,
-					passwordHash = passwordEncoder.encode(bootstrapProperties.adminPassword),
+					passwordHash = requireNotNull(passwordEncoder.encode(bootstrapProperties.adminPassword)),
 					role = AppRole.ADMIN,
 					createdAt = Instant.now(),
 				)

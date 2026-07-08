@@ -22,4 +22,18 @@ class GlobalExceptionHandler {
 					),
 				),
 		)
+
+	@ExceptionHandler(SubscriberAlreadyActiveException::class)
+	fun handleSubscriberAlreadyActive(
+		ex: SubscriberAlreadyActiveException,
+	): Mono<ResponseEntity<Map<String, Any>>> =
+		Mono.just(
+			ResponseEntity.status(HttpStatus.CONFLICT)
+				.body(
+					mapOf(
+						"error" to (ex.message ?: "A subscriber with this email is already active"),
+						"status" to 409,
+					),
+				),
+		)
 }

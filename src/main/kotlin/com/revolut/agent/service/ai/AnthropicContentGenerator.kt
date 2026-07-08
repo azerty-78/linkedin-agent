@@ -1,5 +1,6 @@
 package com.revolut.agent.service.ai
 
+import com.anthropic.models.messages.Model
 import com.revolut.agent.config.AiModelProperties
 import com.revolut.agent.model.LlmProvider
 import org.springframework.ai.anthropic.AnthropicChatModel
@@ -17,7 +18,7 @@ class AnthropicContentGenerator(
 	override suspend fun generate(apiKey: String, prompt: String): String {
 		val options = AnthropicChatOptions.builder()
 			.apiKey(apiKey)
-			.model(aiModelProperties.anthropic.model)
+			.model(Model.of(aiModelProperties.anthropic.model))
 			.maxTokens(aiModelProperties.anthropic.maxTokens)
 			.timeout(Duration.ofSeconds(30))
 			.build()

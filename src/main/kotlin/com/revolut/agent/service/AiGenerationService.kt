@@ -40,13 +40,27 @@ class AiGenerationService(
 					)
 
 				val prompt = promptBuilderService.buildDailyTipPrompt(settings.contentTopic)
-				log.info("Generating daily tip with provider={} (topic length={})", provider, settings.contentTopic.length)
+				val generationStartedAt = System.currentTimeMillis()
+				log.info(
+					"AI generation started | provider={} | topicLength={} | timezone={} | publishHourUtc={}",
+					provider,
+					settings.contentTopic.length,
+					settings.timezone,
+					settings.publishHourUtc,
+				)
 
 				organizationSettingsService.getDecryptedKeyFor(provider)
 					.flatMap { apiKey ->
 						mono {
 							generator.generate(apiKey, prompt)
 						}.map { content ->
+							val durationMs = System.currentTimeMillis() - generationStartedAt
+							log.info(
+								"AI generation succeeded | provider={} | contentLength={} | durationMs={}",
+								provider,
+								content.length,
+								durationMs,
+							)
 							GeneratedContentResponse(
 								content = content,
 								provider = provider,
@@ -98,7 +112,19 @@ class AiGenerationService(
 				"Failed to generate content with provider $provider: ${error.message ?: "unknown error"}"
 		}
 
-		log.warn("AI generation failed for provider={}: {}", provider, error.javaClass.simpleName)
+		log.warn(
+			"AI generation failed | provider={} | errorType={} | errorMessage={}",
+			provider,
+			error.javaClass.simpleName,
+			truncate(error.message ?: root.message),
+		)
 		return AiGenerationException(message, error)
+	}
+
+	private fun truncate(value: String?, maxLength: Int = 200): String {
+		if (value.isNullOrBlank()) {
+			return "unknown error"
+		}
+		return if (value.length <= maxLength) value else value.take(maxLength) + "..."
 	}
 }

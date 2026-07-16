@@ -1,4 +1,4 @@
-package com.revolut.agent.service
+package com.revolut.agent.service.ai
 
 import org.springframework.stereotype.Service
 

@@ -1,6 +1,6 @@
 package com.revolut.agent.config
 
-import com.revolut.agent.service.JwtService
+import com.revolut.agent.service.auth.JwtService
 import org.springframework.http.HttpHeaders
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
 import org.springframework.security.core.authority.SimpleGrantedAuthority

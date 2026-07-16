@@ -1,5 +1,4 @@
-package com.revolut.agent.dto
-
+package com.revolut.agent.dto.auth
 data class LoginResponse(
 	val accessToken: String,
 	val refreshToken: String,

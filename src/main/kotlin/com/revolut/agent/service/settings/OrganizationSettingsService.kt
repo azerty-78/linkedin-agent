@@ -1,10 +1,9 @@
-package com.revolut.agent.service
-
-import com.revolut.agent.dto.OrganizationSettingsResponse
-import com.revolut.agent.dto.UpdateOrganizationSettingsRequest
-import com.revolut.agent.model.LlmProvider
-import com.revolut.agent.model.OrganizationSettings
-import com.revolut.agent.repository.OrganizationSettingsRepository
+package com.revolut.agent.service.settings
+import com.revolut.agent.dto.settings.OrganizationSettingsResponse
+import com.revolut.agent.dto.settings.UpdateOrganizationSettingsRequest
+import com.revolut.agent.model.settings.LlmProvider
+import com.revolut.agent.model.settings.OrganizationSettings
+import com.revolut.agent.repository.settings.OrganizationSettingsRepository
 import org.springframework.stereotype.Service
 import reactor.core.publisher.Mono
 import java.time.Instant

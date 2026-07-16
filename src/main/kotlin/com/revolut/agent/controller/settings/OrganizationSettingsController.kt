@@ -1,8 +1,7 @@
-package com.revolut.agent.controller
-
-import com.revolut.agent.dto.OrganizationSettingsResponse
-import com.revolut.agent.dto.UpdateOrganizationSettingsRequest
-import com.revolut.agent.service.OrganizationSettingsService
+package com.revolut.agent.controller.settings
+import com.revolut.agent.dto.settings.OrganizationSettingsResponse
+import com.revolut.agent.dto.settings.UpdateOrganizationSettingsRequest
+import com.revolut.agent.service.settings.OrganizationSettingsService
 import jakarta.validation.Valid
 import org.springframework.security.core.Authentication
 import org.springframework.web.bind.annotation.GetMapping

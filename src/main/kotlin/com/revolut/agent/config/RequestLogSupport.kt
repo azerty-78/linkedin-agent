@@ -2,8 +2,10 @@ package com.revolut.agent.config
 
 import org.springframework.http.HttpHeaders
 import org.springframework.http.server.reactive.ServerHttpRequest
+import org.springframework.security.core.Authentication
 import org.springframework.security.core.context.SecurityContext
 import org.springframework.web.server.ServerWebExchange
+import reactor.core.publisher.Mono
 import reactor.util.context.ContextView
 import java.net.InetSocketAddress
 import java.util.UUID
@@ -84,30 +86,30 @@ internal object RequestLogSupport {
 	}
 
 	fun resolvePrincipal(contextView: ContextView): Map<String, String> {
-		val securityContext = contextView.getOrEmpty(SecurityContext::class.java)
-		if (securityContext.isEmpty) {
-			return mapOf(
-				"principal" to "anonymous",
-				"roles" to "-",
-				"authenticated" to "false",
-			)
+		if (!contextView.hasKey(SecurityContext::class.java)) {
+			return anonymousPrincipal()
 		}
 
-		val authentication = securityContext.get().authentication
-			?: return mapOf(
-				"principal" to "anonymous",
-				"roles" to "-",
-				"authenticated" to "false",
-			)
+		@Suppress("UNCHECKED_CAST")
+		val securityContextMono = contextView.get(SecurityContext::class.java) as Mono<SecurityContext>
+		val authentication: Authentication? = securityContextMono
+			.flatMap { context -> Mono.justOrEmpty(context.authentication) }
+			.onErrorResume { _: Throwable -> Mono.empty<Authentication>() }
+			.blockOptional()
+			.orElse(null)
+
+		if (authentication == null || !authentication.isAuthenticated) {
+			return anonymousPrincipal()
+		}
 
 		val roles = authentication.authorities
-			.joinToString(",") { it.authority.removePrefix("ROLE_") }
+			.joinToString(",") { authority -> (authority.authority ?: "").removePrefix("ROLE_") }
 			.ifBlank { "-" }
 
 		return mapOf(
 			"principal" to (authentication.name ?: "anonymous"),
 			"roles" to roles,
-			"authenticated" to authentication.isAuthenticated.toString(),
+			"authenticated" to "true",
 		)
 	}
 
@@ -151,6 +153,12 @@ internal object RequestLogSupport {
 				}
 			}
 	}
+
+	private fun anonymousPrincipal(): Map<String, String> = mapOf(
+		"principal" to "anonymous",
+		"roles" to "-",
+		"authenticated" to "false",
+	)
 
 	private fun truncate(value: String?, maxLength: Int): String {
 		if (value.isNullOrBlank()) {

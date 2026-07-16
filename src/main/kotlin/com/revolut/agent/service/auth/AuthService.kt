@@ -1,9 +1,8 @@
-package com.revolut.agent.service
-
+package com.revolut.agent.service.auth
 import com.revolut.agent.config.JwtProperties
-import com.revolut.agent.dto.LoginRequest
-import com.revolut.agent.dto.LoginResponse
-import com.revolut.agent.repository.AppUserRepository
+import com.revolut.agent.dto.auth.LoginRequest
+import com.revolut.agent.dto.auth.LoginResponse
+import com.revolut.agent.repository.user.AppUserRepository
 import org.springframework.security.authentication.BadCredentialsException
 import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.stereotype.Service

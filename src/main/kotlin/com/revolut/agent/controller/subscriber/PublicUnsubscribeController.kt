@@ -1,6 +1,5 @@
-package com.revolut.agent.controller
-
-import com.revolut.agent.service.SubscriberService
+package com.revolut.agent.controller.subscriber
+import com.revolut.agent.service.subscriber.SubscriberService
 import org.springframework.stereotype.Controller
 import org.springframework.ui.Model
 import org.springframework.web.bind.annotation.GetMapping

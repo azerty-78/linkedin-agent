@@ -1,6 +1,5 @@
-package com.revolut.agent.repository
-
-import com.revolut.agent.model.OrganizationSettings
+package com.revolut.agent.repository.settings
+import com.revolut.agent.model.settings.OrganizationSettings
 import org.springframework.data.mongodb.repository.ReactiveMongoRepository
 import reactor.core.publisher.Mono
 

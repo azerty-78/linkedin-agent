@@ -1,6 +1,5 @@
-package com.revolut.agent.dto
-
-import com.revolut.agent.model.LlmProvider
+package com.revolut.agent.dto.settings
+import com.revolut.agent.model.settings.LlmProvider
 import java.time.Instant
 
 data class OrganizationSettingsResponse(

@@ -1,7 +1,7 @@
 package com.revolut.agent.service.ai
 
 import com.revolut.agent.config.AiModelProperties
-import com.revolut.agent.model.LlmProvider
+import com.revolut.agent.model.settings.LlmProvider
 import org.springframework.ai.openai.OpenAiChatModel
 import org.springframework.ai.openai.OpenAiChatOptions
 import org.springframework.stereotype.Component
@@ -25,6 +25,6 @@ class OpenAiContentGenerator(
 			.options(options)
 			.build()
 
-		return chatModel.call(prompt).trim()
+		return chatModel.call(prompt)?.trim().orEmpty()
 	}
 }

@@ -1,5 +1,4 @@
-package com.revolut.agent.model
-
+package com.revolut.agent.model.settings
 enum class LlmProvider {
 	OPENAI,
 	ANTHROPIC,

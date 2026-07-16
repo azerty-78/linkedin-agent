@@ -1,5 +1,4 @@
-package com.revolut.agent.service
-
+package com.revolut.agent.service.settings
 import com.revolut.agent.config.EncryptionProperties
 import org.springframework.stereotype.Service
 import java.nio.charset.StandardCharsets

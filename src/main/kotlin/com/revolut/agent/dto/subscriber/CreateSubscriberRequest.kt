@@ -1,5 +1,4 @@
-package com.revolut.agent.dto
-
+package com.revolut.agent.dto.subscriber
 import jakarta.validation.constraints.Email
 import jakarta.validation.constraints.NotBlank
 

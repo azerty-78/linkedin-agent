@@ -1,9 +1,10 @@
-package com.revolut.agent.service
+package com.revolut.agent.service.ai
 
-import com.revolut.agent.dto.GeneratedContentResponse
-import com.revolut.agent.exception.AiGenerationException
-import com.revolut.agent.model.LlmProvider
-import com.revolut.agent.service.ai.AiContentGenerator
+import com.revolut.agent.dto.ai.GeneratedContentResponse
+import com.revolut.agent.dto.settings.OrganizationSettingsResponse
+import com.revolut.agent.exception.ai.AiGenerationException
+import com.revolut.agent.model.settings.LlmProvider
+import com.revolut.agent.service.settings.OrganizationSettingsService
 import kotlinx.coroutines.reactor.mono
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
@@ -72,7 +73,7 @@ class AiGenerationService(
 			}
 
 	private fun hasConfiguredKey(
-		settings: com.revolut.agent.dto.OrganizationSettingsResponse,
+		settings: OrganizationSettingsResponse,
 		provider: LlmProvider,
 	): Boolean =
 		when (provider) {

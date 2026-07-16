@@ -1,6 +1,6 @@
 package com.revolut.agent.service.ai
 
-import com.revolut.agent.model.LlmProvider
+import com.revolut.agent.model.settings.LlmProvider
 import org.springframework.stereotype.Component
 
 @Component

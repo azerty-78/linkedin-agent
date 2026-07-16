@@ -1,7 +1,6 @@
-package com.revolut.agent.controller
-
-import com.revolut.agent.dto.GeneratedContentResponse
-import com.revolut.agent.service.AiGenerationService
+package com.revolut.agent.controller.ai
+import com.revolut.agent.dto.ai.GeneratedContentResponse
+import com.revolut.agent.service.ai.AiGenerationService
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController

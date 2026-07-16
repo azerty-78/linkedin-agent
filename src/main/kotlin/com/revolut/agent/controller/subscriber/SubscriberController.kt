@@ -1,10 +1,9 @@
-package com.revolut.agent.controller
-
-import com.revolut.agent.dto.CreateSubscriberRequest
-import com.revolut.agent.dto.SubscriberListResponse
-import com.revolut.agent.dto.SubscriberResponse
-import com.revolut.agent.model.SubscriberStatus
-import com.revolut.agent.service.SubscriberService
+package com.revolut.agent.controller.subscriber
+import com.revolut.agent.dto.subscriber.CreateSubscriberRequest
+import com.revolut.agent.dto.subscriber.SubscriberListResponse
+import com.revolut.agent.dto.subscriber.SubscriberResponse
+import com.revolut.agent.model.subscriber.SubscriberStatus
+import com.revolut.agent.service.subscriber.SubscriberService
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.DeleteMapping

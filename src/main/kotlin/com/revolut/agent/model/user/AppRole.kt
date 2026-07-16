@@ -1,5 +1,4 @@
-package com.revolut.agent.model
-
+package com.revolut.agent.model.user
 enum class AppRole {
 	ADMIN,
 }

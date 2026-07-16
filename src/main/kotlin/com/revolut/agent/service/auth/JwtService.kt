@@ -1,7 +1,6 @@
-package com.revolut.agent.service
-
+package com.revolut.agent.service.auth
 import com.revolut.agent.config.JwtProperties
-import com.revolut.agent.model.AppUser
+import com.revolut.agent.model.user.AppUser
 import io.jsonwebtoken.Claims
 import io.jsonwebtoken.Jwts
 import io.jsonwebtoken.security.Keys

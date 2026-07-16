@@ -1,9 +1,8 @@
-package com.revolut.agent.controller
-
-import com.revolut.agent.dto.LoginRequest
-import com.revolut.agent.dto.LoginResponse
-import com.revolut.agent.dto.MeResponse
-import com.revolut.agent.service.AuthService
+package com.revolut.agent.controller.auth
+import com.revolut.agent.dto.auth.LoginRequest
+import com.revolut.agent.dto.auth.LoginResponse
+import com.revolut.agent.dto.auth.MeResponse
+import com.revolut.agent.service.auth.AuthService
 import jakarta.validation.Valid
 import org.springframework.security.core.Authentication
 import org.springframework.web.bind.annotation.GetMapping

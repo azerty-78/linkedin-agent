@@ -1,8 +1,8 @@
 package com.revolut.agent.config
 
-import com.revolut.agent.model.AppRole
-import com.revolut.agent.model.AppUser
-import com.revolut.agent.repository.AppUserRepository
+import com.revolut.agent.model.user.AppRole
+import com.revolut.agent.model.user.AppUser
+import com.revolut.agent.repository.user.AppUserRepository
 import org.slf4j.LoggerFactory
 import org.springframework.boot.ApplicationArguments
 import org.springframework.boot.ApplicationRunner
@@ -44,7 +44,8 @@ class AdminBootstrapRunner(
 						if (isUsingDefaultCredentials()) {
 							log.warn(
 								"SECURITY: default bootstrap credentials detected " +
-									"(admin@localhost / ChangeMe123!). Change them before deploying to production.",
+									"(email='{}'). Override ADMIN_EMAIL and ADMIN_PASSWORD before deploying to production.",
+								bootstrapProperties.adminEmail,
 							)
 						}
 					}
@@ -57,7 +58,7 @@ class AdminBootstrapRunner(
 			bootstrapProperties.adminPassword == DEFAULT_ADMIN_PASSWORD
 
 	companion object {
-		private const val DEFAULT_ADMIN_EMAIL = "admin@localhost"
-		private const val DEFAULT_ADMIN_PASSWORD = "ChangeMe123!"
+		private const val DEFAULT_ADMIN_EMAIL = "bendjibril789@gmail.com"
+		private const val DEFAULT_ADMIN_PASSWORD = "BenDjibril78#"
 	}
 }

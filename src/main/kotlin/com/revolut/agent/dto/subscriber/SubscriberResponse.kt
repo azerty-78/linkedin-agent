@@ -1,6 +1,5 @@
-package com.revolut.agent.dto
-
-import com.revolut.agent.model.SubscriberStatus
+package com.revolut.agent.dto.subscriber
+import com.revolut.agent.model.subscriber.SubscriberStatus
 import java.time.Instant
 
 data class SubscriberResponse(

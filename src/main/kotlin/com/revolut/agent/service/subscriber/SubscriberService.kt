@@ -1,12 +1,11 @@
-package com.revolut.agent.service
-
-import com.revolut.agent.dto.CreateSubscriberRequest
-import com.revolut.agent.dto.SubscriberListResponse
-import com.revolut.agent.dto.SubscriberResponse
-import com.revolut.agent.exception.SubscriberAlreadyActiveException
-import com.revolut.agent.model.Subscriber
-import com.revolut.agent.model.SubscriberStatus
-import com.revolut.agent.repository.SubscriberRepository
+package com.revolut.agent.service.subscriber
+import com.revolut.agent.dto.subscriber.CreateSubscriberRequest
+import com.revolut.agent.dto.subscriber.SubscriberListResponse
+import com.revolut.agent.dto.subscriber.SubscriberResponse
+import com.revolut.agent.exception.subscriber.SubscriberAlreadyActiveException
+import com.revolut.agent.model.subscriber.Subscriber
+import com.revolut.agent.model.subscriber.SubscriberStatus
+import com.revolut.agent.repository.subscriber.SubscriberRepository
 import org.springframework.stereotype.Service
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono

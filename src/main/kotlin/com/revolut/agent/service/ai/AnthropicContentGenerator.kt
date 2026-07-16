@@ -2,7 +2,7 @@ package com.revolut.agent.service.ai
 
 import com.anthropic.models.messages.Model
 import com.revolut.agent.config.AiModelProperties
-import com.revolut.agent.model.LlmProvider
+import com.revolut.agent.model.settings.LlmProvider
 import org.springframework.ai.anthropic.AnthropicChatModel
 import org.springframework.ai.anthropic.AnthropicChatOptions
 import org.springframework.stereotype.Component
@@ -27,6 +27,6 @@ class AnthropicContentGenerator(
 			.options(options)
 			.build()
 
-		return chatModel.call(prompt).trim()
+		return chatModel.call(prompt)?.trim().orEmpty()
 	}
 }

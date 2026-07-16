@@ -1,5 +1,7 @@
 package com.revolut.agent.exception
 
+import com.revolut.agent.exception.ai.AiGenerationException
+import com.revolut.agent.exception.subscriber.SubscriberAlreadyActiveException
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.security.authentication.BadCredentialsException

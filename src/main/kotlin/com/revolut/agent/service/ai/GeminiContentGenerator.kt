@@ -24,7 +24,8 @@ class GeminiContentGenerator(
 		.build()
 
 	override suspend fun generate(apiKey: String, prompt: String, model: String): String {
-			val response = try {
+		val maxOutput = minOf(aiModelProperties.gemini.maxOutputTokens, aiModelProperties.maxOutputTokens)
+		val response = try {
 			webClient.post()
 				.uri("/models/{model}:generateContent", model)
 				.header("x-goog-api-key", apiKey)
@@ -38,6 +39,9 @@ class GeminiContentGenerator(
 									mapOf("text" to prompt),
 								),
 							),
+						),
+						"generationConfig" to mapOf(
+							"maxOutputTokens" to maxOutput,
 						),
 					),
 				)

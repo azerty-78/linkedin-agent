@@ -8,21 +8,22 @@ class AiModelProperties {
 	var openai: OpenAi = OpenAi()
 	var anthropic: Anthropic = Anthropic()
 	var gemini: Gemini = Gemini()
+	/** Cap de sortie commun (tips courts) pour limiter coût / quota. */
+	var maxOutputTokens: Int = 180
 
 	class OpenAi {
-		/** Défaut économique pour les tests. */
-		var model: String = "gpt-4o-mini"
+		/** Plus petit modèle OpenAI recommandé (pas gratuit — nécessite crédit OpenAI). */
+		var model: String = "gpt-4.1-nano"
 	}
 
 	class Anthropic {
-		/** Haiku = tier économique (évite Sonnet pour les tests). */
 		var model: String = "claude-haiku-4-5"
-		var maxTokens: Int = 2048
+		var maxTokens: Int = 180
 	}
 
 	class Gemini {
-		/** Free tier Google AI Studio — recommandé pour les tests. */
 		var model: String = "gemini-2.0-flash"
 		var apiBaseUrl: String = "https://generativelanguage.googleapis.com/v1beta"
+		var maxOutputTokens: Int = 180
 	}
 }

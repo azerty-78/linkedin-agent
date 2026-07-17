@@ -16,10 +16,11 @@ class AnthropicContentGenerator(
 	override val provider: LlmProvider = LlmProvider.ANTHROPIC
 
 	override suspend fun generate(apiKey: String, prompt: String, model: String): String {
+		val maxTokens = minOf(aiModelProperties.anthropic.maxTokens, aiModelProperties.maxOutputTokens)
 		val options = AnthropicChatOptions.builder()
 			.apiKey(apiKey)
 			.model(Model.of(model))
-			.maxTokens(aiModelProperties.anthropic.maxTokens)
+			.maxTokens(maxTokens)
 			.timeout(Duration.ofSeconds(30))
 			.build()
 

@@ -1,13 +1,12 @@
 package com.revolut.agent.service.publication
 
 import com.revolut.agent.dto.settings.OrganizationSettingsResponse
-import com.revolut.agent.model.linkedin.LinkedInConnection
 import com.revolut.agent.model.linkedin.LinkedInConnectionStatus
 import com.revolut.agent.model.publication.PublicationStatus
 import com.revolut.agent.model.publication.PublicationTriggerType
 import com.revolut.agent.model.settings.LlmProvider
-import com.revolut.agent.repository.linkedin.LinkedInConnectionRepository
 import com.revolut.agent.repository.publication.PublicationRepository
+import com.revolut.agent.service.linkedin.LinkedInOAuthService
 import com.revolut.agent.service.settings.OrganizationSettingsService
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
@@ -23,23 +22,17 @@ class PublicationSchedulerService(
 	private val organizationSettingsService: OrganizationSettingsService,
 	private val publicationOrchestratorService: PublicationOrchestratorService,
 	private val publicationRepository: PublicationRepository,
-	private val linkedInConnectionRepository: LinkedInConnectionRepository,
+	private val linkedInOAuthService: LinkedInOAuthService,
 ) {
 
 	private val log = LoggerFactory.getLogger(javaClass)
 
-	/** Dernière date UTC où un run SCHEDULED a été déclenché (évite doublon le même jour). */
 	private val lastScheduledTriggerDate: AtomicReference<LocalDate?> = AtomicReference(null)
 
 	fun lastScheduledRunDate(): LocalDate? = lastScheduledTriggerDate.get()
 
 	/**
 	 * Tolérance ±5 min autour de `publishHourUtc:00` UTC.
-	 * Ex. publishHourUtc=15 → fenêtre [14:55, 15:05] UTC.
-	 *
-	 * Edge case restart pendant la fenêtre : [lastScheduledTriggerDate] est en mémoire JVM.
-	 * Après restart la date est perdue → un 2e trigger le même jour est possible uniquement
-	 * si le check retombe encore dans la fenêtre (±5 min). Hors fenêtre = pas de doublon.
 	 */
 	@Scheduled(fixedRate = 300_000)
 	fun checkAndTriggerScheduledPublication() {
@@ -101,9 +94,6 @@ class PublicationSchedulerService(
 			)
 	}
 
-	/**
-	 * Fenêtre [target - 5min, target + 5min] où target = aujourd'hui à publishHourUtc:00:00 UTC.
-	 */
 	internal fun isWithinPublishWindow(nowUtc: ZonedDateTime, publishHourUtc: Int): Boolean {
 		val hour = publishHourUtc.coerceIn(0, 23)
 		val target = nowUtc.toLocalDate().atTime(hour, 0).atZone(ZoneOffset.UTC)
@@ -124,13 +114,16 @@ class PublicationSchedulerService(
 				settings.activeLlmProvider,
 			)
 		}
-		return linkedInConnectionRepository.findById(LinkedInConnection.SINGLETON_ID)
+		if (settings.linkedInClientId.isNullOrBlank() || settings.linkedInClientSecretMasked.isBlank()) {
+			log.warn("Scheduler enabled but LinkedIn app credentials missing in /api/settings")
+		}
+		return linkedInOAuthService.resolveActiveAccount()
 			.map { it.status != LinkedInConnectionStatus.CONNECTED }
 			.defaultIfEmpty(true)
 			.doOnNext { notConnected ->
 				if (notConnected) {
 					log.warn(
-						"Scheduler enabled but LinkedIn is not CONNECTED — scheduled runs will fail at LINKEDIN_PUBLISH",
+						"Scheduler enabled but no active LinkedIn account CONNECTED — scheduled runs will fail at LINKEDIN_PUBLISH",
 					)
 				}
 			}

@@ -16,6 +16,13 @@ data class OrganizationSettingsResponse(
 	val anthropicKeyMasked: String,
 	val geminiKeyMasked: String,
 	val linkedInOrganizationId: String?,
+	/** Client ID app LinkedIn (public). */
+	val linkedInClientId: String?,
+	val linkedInClientSecretMasked: String,
+	val linkedInRedirectUri: String?,
+	val linkedInOauthScopes: String?,
+	/** Id du compte LinkedIn actif (parmi max 3). */
+	val activeLinkedInAccountId: String?,
 	val schedulerEnabled: Boolean,
 	val updatedAt: Instant,
 )

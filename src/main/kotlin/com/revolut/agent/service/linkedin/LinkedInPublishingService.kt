@@ -22,6 +22,7 @@ import java.time.Instant
 @Service
 class LinkedInPublishingService(
 	private val linkedInProperties: LinkedInProperties,
+	private val linkedInOAuthService: LinkedInOAuthService,
 	private val linkedInConnectionRepository: LinkedInConnectionRepository,
 	private val publicationRecordRepository: PublicationRecordRepository,
 	private val encryptionService: EncryptionService,
@@ -32,10 +33,7 @@ class LinkedInPublishingService(
 	private val webClient: WebClient = webClientBuilder.clone().build()
 
 	/**
-	 * Publie [content] sur la **Page entreprise** LinkedIn (`linkedInOrganizationUrn`).
-	 * Pas de publication sur le profil perso, pas de repost automatique.
-	 * En cas d'échec HTTP LinkedIn : retourne un [PublicationRecord] FAILED (pas d'exception 500).
-	 * Erreurs métier préalables → [LinkedInPublishingException] (422).
+	 * Publie [content] sur la **Page entreprise** du compte LinkedIn **actif**.
 	 */
 	fun publish(content: String, aiProvider: LlmProvider): Mono<PublicationRecord> {
 		val trimmed = content.trim()
@@ -86,11 +84,12 @@ class LinkedInPublishingService(
 	}
 
 	private fun loadConnectedConnection(): Mono<LinkedInConnection> =
-		linkedInConnectionRepository.findById(LinkedInConnection.SINGLETON_ID)
+		linkedInOAuthService.resolveActiveAccount()
 			.switchIfEmpty(
 				Mono.error(
 					LinkedInPublishingException(
-						"LinkedIn non connecté, allez sur /api/linkedin/auth-url",
+						"Aucun compte LinkedIn actif. Connectez un compte via /api/linkedin/accounts/connect " +
+							"et sélectionnez-le dans PUT /api/settings (activeLinkedInAccountId).",
 					),
 				),
 			)
@@ -99,7 +98,7 @@ class LinkedInPublishingService(
 					connection.status != LinkedInConnectionStatus.CONNECTED ->
 						Mono.error(
 							LinkedInPublishingException(
-								"LinkedIn non connecté, allez sur /api/linkedin/auth-url",
+								"Compte LinkedIn non connecté (id=${connection.id}). Relancez OAuth.",
 							),
 						)
 
@@ -108,7 +107,8 @@ class LinkedInPublishingService(
 							.then(
 								Mono.error(
 									LinkedInPublishingException(
-										"Token LinkedIn expiré — reconnectez-vous via /api/linkedin/auth-url",
+										"Token LinkedIn expiré — reconnectez le compte via " +
+											"/api/linkedin/accounts/${connection.id}/auth-url",
 									),
 								),
 							)

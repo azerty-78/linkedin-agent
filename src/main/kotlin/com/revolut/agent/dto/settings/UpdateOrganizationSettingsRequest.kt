@@ -21,17 +21,23 @@ data class UpdateOrganizationSettingsRequest(
 
 	val activeLlmProvider: LlmProvider,
 
-	/** Modèle OpenAI (ex. gpt-4o-mini). Null = conserver la valeur existante. */
 	val openAiModel: String? = null,
-	/** Modèle Anthropic (ex. claude-haiku-4-5). Null = conserver. */
 	val anthropicModel: String? = null,
-	/** Modèle Gemini (ex. gemini-3.5-flash). Null = conserver. */
 	val geminiModel: String? = null,
 
 	val openAiApiKey: String? = null,
 	val anthropicApiKey: String? = null,
 	val geminiApiKey: String? = null,
 	val linkedInOrganizationId: String? = null,
-	/** Active le scheduler de publication quotidienne. Null = conserver. */
+
+	/** Client ID LinkedIn Developer App. Null = conserver. */
+	val linkedInClientId: String? = null,
+	/** Client secret — null/blank = conserver. */
+	val linkedInClientSecret: String? = null,
+	val linkedInRedirectUri: String? = null,
+	val linkedInOauthScopes: String? = null,
+	/** Compte LinkedIn à utiliser pour publier. Null = conserver. */
+	val activeLinkedInAccountId: String? = null,
+
 	val schedulerEnabled: Boolean? = null,
 )

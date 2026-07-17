@@ -18,7 +18,16 @@ data class OrganizationSettings(
 	val encryptedOpenAiKey: String? = null,
 	val encryptedAnthropicKey: String? = null,
 	val encryptedGeminiKey: String? = null,
+	/** @deprecated Prefer linkedIn accounts + organizationUrn per account. */
 	val linkedInOrganizationId: String? = null,
+	/** Client ID app LinkedIn Developer (public) — stocké en clair. */
+	val linkedInClientId: String? = null,
+	/** Client secret LinkedIn — chiffré AES comme les clés LLM. */
+	val encryptedLinkedInClientSecret: String? = null,
+	val linkedInRedirectUri: String? = null,
+	val linkedInOauthScopes: String? = null,
+	/** Compte LinkedIn actif pour publication (id Mongo de linkedin_connection). */
+	val activeLinkedInAccountId: String? = null,
 	val schedulerEnabled: Boolean = false,
 	val updatedAt: Instant = Instant.now(),
 	val updatedBy: String? = null,

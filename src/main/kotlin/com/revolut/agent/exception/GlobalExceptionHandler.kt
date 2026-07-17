@@ -1,6 +1,7 @@
 package com.revolut.agent.exception
 
 import com.revolut.agent.exception.ai.AiGenerationException
+import com.revolut.agent.exception.linkedin.LinkedInAccountLimitException
 import com.revolut.agent.exception.linkedin.LinkedInPublishingException
 import com.revolut.agent.exception.publication.PublicationAlreadyRunningException
 import com.revolut.agent.exception.subscriber.SubscriberAlreadyActiveException
@@ -16,6 +17,18 @@ import reactor.core.publisher.Mono
 
 @RestControllerAdvice
 class GlobalExceptionHandler {
+
+	@ExceptionHandler(LinkedInAccountLimitException::class)
+	fun handleLinkedInAccountLimit(ex: LinkedInAccountLimitException): Mono<ResponseEntity<Map<String, Any>>> =
+		Mono.just(
+			ResponseEntity.status(HttpStatus.CONFLICT)
+				.body(
+					mapOf(
+						"error" to (ex.message ?: "LinkedIn account limit reached"),
+						"status" to 409,
+					),
+				),
+		)
 
 	@ExceptionHandler(PublicationAlreadyRunningException::class)
 	fun handlePublicationAlreadyRunning(
@@ -55,6 +68,24 @@ class GlobalExceptionHandler {
 					mapOf(
 						"error" to message,
 						"status" to 400,
+					),
+				),
+		)
+	}
+
+	@ExceptionHandler(IllegalStateException::class)
+	fun handleIllegalState(ex: IllegalStateException): Mono<ResponseEntity<Map<String, Any>>> {
+		val status = if (ex.message?.contains("LinkedIn", ignoreCase = true) == true) {
+			HttpStatus.UNPROCESSABLE_ENTITY
+		} else {
+			HttpStatus.BAD_REQUEST
+		}
+		return Mono.just(
+			ResponseEntity.status(status)
+				.body(
+					mapOf(
+						"error" to (ex.message ?: "Illegal state"),
+						"status" to status.value(),
 					),
 				),
 		)

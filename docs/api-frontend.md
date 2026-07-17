@@ -504,9 +504,49 @@ Utile pour un indicateur « API up » dans le frontend / CI.
 
 ---
 
-## 8. LinkedIn OAuth2 — `/api/linkedin` (connexion uniquement)
+## 8. LinkedIn — credentials en DB + multi-comptes (max 3)
 
-> **Pas de publication UGC pour l’instant** — seulement connecter le compte, stocker le token chiffré côté backend, saisir l’URN de Page.
+### 8.0 Prérequis settings (credentials app Developer)
+
+Les **Client ID / Client Secret** ne sont plus dans `.env`. Les saisir via settings :
+
+`PUT /api/settings` (champs additionnels) :
+
+```json
+{
+  "linkedInClientId": "78xxxxxxxxxxxx",
+  "linkedInClientSecret": "WPL_AP1....",
+  "linkedInRedirectUri": "http://localhost:8080/api/linkedin/callback",
+  "linkedInOauthScopes": "w_organization_social r_organization_social",
+  "activeLinkedInAccountId": "mongoObjectIdDuCompteActif"
+}
+```
+
+`GET /api/settings` renvoie `linkedInClientId`, `linkedInClientSecretMasked`, `linkedInRedirectUri`, `linkedInOauthScopes`, `activeLinkedInAccountId` (secret jamais en clair).
+
+### 8.1 Comptes LinkedIn (page dédiée front)
+
+| Méthode | Route | Rôle |
+|---------|-------|------|
+| `GET` | `/api/linkedin/accounts` | Liste (max 3) + `activeLinkedInAccountId` |
+| `POST` | `/api/linkedin/accounts/connect?label=` | OAuth **nouveau** compte → `{ authorizationUrl }` ; **409** si déjà 3 |
+| `GET` | `/api/linkedin/accounts/{id}` | Détail |
+| `GET` | `/api/linkedin/accounts/{id}/auth-url` | Reconnecter OAuth |
+| `PUT` | `/api/linkedin/accounts/{id}` | `{ "label": "Page Prod" }` |
+| `PUT` | `/api/linkedin/accounts/{id}/organization-urn` | `{ "organizationUrn": "urn:li:organization:…" }` |
+| `DELETE` | `/api/linkedin/accounts/{id}` | Supprime le compte |
+
+**Choisir le compte actif** : `PUT /api/settings` avec `activeLinkedInAccountId`.
+
+Flow UI page LinkedIn :
+1. Settings → saisir Client ID/Secret LinkedIn
+2. `POST /accounts/connect` → ouvrir `authorizationUrl`
+3. Callback → `?connected=true` → `GET /accounts`
+4. Saisir URN Page sur le compte
+5. Settings → `activeLinkedInAccountId` = id choisi
+6. Publier / scheduler utilise **uniquement** le compte actif
+
+Compat legacy : `/api/linkedin/auth-url`, `/status`, `/organization-urn`, `/disconnect` opèrent sur le compte actif.
 
 ### 8.1 Flow à implémenter (important)
 

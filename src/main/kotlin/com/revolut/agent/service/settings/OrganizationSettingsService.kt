@@ -1,6 +1,7 @@
 package com.revolut.agent.service.settings
 
 import com.revolut.agent.config.AiModelProperties
+import com.revolut.agent.config.LinkedInProperties
 import com.revolut.agent.dto.settings.LlmModelOptionResponse
 import com.revolut.agent.dto.settings.LlmModelsCatalogResponse
 import com.revolut.agent.dto.settings.OrganizationSettingsResponse
@@ -14,11 +15,19 @@ import org.springframework.stereotype.Service
 import reactor.core.publisher.Mono
 import java.time.Instant
 
+data class LinkedInAppCredentials(
+	val clientId: String,
+	val clientSecret: String,
+	val redirectUri: String,
+	val oauthScopes: String,
+)
+
 @Service
 class OrganizationSettingsService(
 	private val organizationSettingsRepository: OrganizationSettingsRepository,
 	private val encryptionService: EncryptionService,
 	private val aiModelProperties: AiModelProperties,
+	private val linkedInProperties: LinkedInProperties,
 ) {
 
 	private val log = LoggerFactory.getLogger(javaClass)
@@ -75,7 +84,23 @@ class OrganizationSettingsService(
 					encryptedOpenAiKey = resolveEncryptedKey(base.encryptedOpenAiKey, request.openAiApiKey),
 					encryptedAnthropicKey = resolveEncryptedKey(base.encryptedAnthropicKey, request.anthropicApiKey),
 					encryptedGeminiKey = resolveEncryptedKey(base.encryptedGeminiKey, request.geminiApiKey),
-					linkedInOrganizationId = request.linkedInOrganizationId?.trim()?.takeIf { it.isNotEmpty() },
+					linkedInOrganizationId = request.linkedInOrganizationId?.trim()?.takeIf { it.isNotEmpty() }
+						?: base.linkedInOrganizationId,
+					linkedInClientId = request.linkedInClientId?.trim()?.takeIf { it.isNotEmpty() }
+						?: base.linkedInClientId,
+					encryptedLinkedInClientSecret = resolveEncryptedKey(
+						base.encryptedLinkedInClientSecret,
+						request.linkedInClientSecret,
+					),
+					linkedInRedirectUri = request.linkedInRedirectUri?.trim()?.takeIf { it.isNotEmpty() }
+						?: base.linkedInRedirectUri,
+					linkedInOauthScopes = request.linkedInOauthScopes?.trim()?.takeIf { it.isNotEmpty() }
+						?: base.linkedInOauthScopes,
+					activeLinkedInAccountId = when {
+						request.activeLinkedInAccountId == null -> base.activeLinkedInAccountId
+						request.activeLinkedInAccountId.isBlank() -> null
+						else -> request.activeLinkedInAccountId.trim()
+					},
 					schedulerEnabled = request.schedulerEnabled ?: base.schedulerEnabled,
 					updatedAt = Instant.now(),
 					updatedBy = updatedByEmail,
@@ -83,6 +108,63 @@ class OrganizationSettingsService(
 				organizationSettingsRepository.save(updated)
 			}
 			.map(::toResponse)
+
+	/**
+	 * Credentials app LinkedIn (client id/secret) depuis la DB — plus depuis .env.
+	 */
+	fun getLinkedInAppCredentials(): Mono<LinkedInAppCredentials> =
+		findOrCreateSettings()
+			.flatMap { settings ->
+				val clientId = settings.linkedInClientId?.trim().orEmpty()
+				if (clientId.isBlank()) {
+					return@flatMap Mono.error(
+						IllegalStateException(
+							"LinkedIn client ID manquant. Configurez-le via PUT /api/settings (linkedInClientId).",
+						),
+					)
+				}
+				val secretEncrypted = settings.encryptedLinkedInClientSecret
+				if (secretEncrypted.isNullOrBlank()) {
+					return@flatMap Mono.error(
+						IllegalStateException(
+							"LinkedIn client secret manquant. Configurez-le via PUT /api/settings (linkedInClientSecret).",
+						),
+					)
+				}
+				val secret = encryptionService.tryDecrypt(secretEncrypted)
+					?: return@flatMap Mono.error(
+						IllegalStateException(
+							"LinkedIn client secret illisible (ENCRYPTION_KEY?). Re-saisissez linkedInClientSecret.",
+						),
+					)
+				val redirect = settings.linkedInRedirectUri?.trim()?.takeIf { it.isNotEmpty() }
+					?: linkedInProperties.defaultRedirectUri
+				val scopes = settings.linkedInOauthScopes?.trim()?.takeIf { it.isNotEmpty() }
+					?: linkedInProperties.defaultOauthScopes
+				Mono.just(
+					LinkedInAppCredentials(
+						clientId = clientId,
+						clientSecret = secret,
+						redirectUri = redirect,
+						oauthScopes = scopes,
+					),
+				)
+			}
+
+	/** Id du compte LinkedIn actif, ou chaîne vide s'il n'y en a pas. */
+	fun getActiveLinkedInAccountId(): Mono<String> =
+		findOrCreateSettings().map { it.activeLinkedInAccountId.orEmpty() }
+
+	fun setActiveLinkedInAccountId(accountId: String?): Mono<OrganizationSettings> =
+		findOrCreateSettings()
+			.flatMap { settings ->
+				organizationSettingsRepository.save(
+					settings.copy(
+						activeLinkedInAccountId = accountId,
+						updatedAt = Instant.now(),
+					),
+				)
+			}
 
 	internal fun getDecryptedKeyFor(provider: LlmProvider): Mono<String> =
 		findOrCreateSettings()
@@ -125,19 +207,17 @@ class OrganizationSettingsService(
 				},
 			)
 
-	/**
-	 * Drop ciphertext that cannot be decrypted with the current key
-	 * (typical after an ephemeral ENCRYPTION_KEY rotation on restart).
-	 */
 	private fun clearUnreadableKeys(settings: OrganizationSettings): OrganizationSettings {
 		val openAi = readableOrNull(settings.encryptedOpenAiKey)
 		val anthropic = readableOrNull(settings.encryptedAnthropicKey)
 		val gemini = readableOrNull(settings.encryptedGeminiKey)
+		val linkedInSecret = readableOrNull(settings.encryptedLinkedInClientSecret)
 
 		if (
 			openAi == settings.encryptedOpenAiKey &&
 			anthropic == settings.encryptedAnthropicKey &&
-			gemini == settings.encryptedGeminiKey
+			gemini == settings.encryptedGeminiKey &&
+			linkedInSecret == settings.encryptedLinkedInClientSecret
 		) {
 			return settings
 		}
@@ -146,6 +226,7 @@ class OrganizationSettingsService(
 			encryptedOpenAiKey = openAi,
 			encryptedAnthropicKey = anthropic,
 			encryptedGeminiKey = gemini,
+			encryptedLinkedInClientSecret = linkedInSecret,
 			updatedAt = Instant.now(),
 		)
 	}
@@ -195,6 +276,13 @@ class OrganizationSettingsService(
 			anthropicKeyMasked = maskEncrypted(settings.encryptedAnthropicKey),
 			geminiKeyMasked = maskEncrypted(settings.encryptedGeminiKey),
 			linkedInOrganizationId = settings.linkedInOrganizationId,
+			linkedInClientId = settings.linkedInClientId,
+			linkedInClientSecretMasked = maskEncrypted(settings.encryptedLinkedInClientSecret),
+			linkedInRedirectUri = settings.linkedInRedirectUri
+				?: linkedInProperties.defaultRedirectUri,
+			linkedInOauthScopes = settings.linkedInOauthScopes
+				?: linkedInProperties.defaultOauthScopes,
+			activeLinkedInAccountId = settings.activeLinkedInAccountId,
 			schedulerEnabled = settings.schedulerEnabled,
 			updatedAt = settings.updatedAt,
 		)

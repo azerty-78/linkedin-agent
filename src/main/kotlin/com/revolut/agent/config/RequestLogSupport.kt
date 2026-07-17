@@ -86,31 +86,47 @@ internal object RequestLogSupport {
 	}
 
 	fun resolvePrincipal(contextView: ContextView): Map<String, String> {
+		// Spring Security stores Mono<SecurityContext> under SecurityContext.class.
+		// Use the Object-key ContextView API — get(Class) looks for a value *of that type*
+		// and throws NoSuchElementException when only the Mono wrapper is present.
 		if (!contextView.hasKey(SecurityContext::class.java)) {
 			return anonymousPrincipal()
 		}
 
-		@Suppress("UNCHECKED_CAST")
-		val securityContextMono = contextView.get(SecurityContext::class.java) as Mono<SecurityContext>
-		val authentication: Authentication? = securityContextMono
-			.flatMap { context -> Mono.justOrEmpty(context.authentication) }
-			.onErrorResume { _: Throwable -> Mono.empty<Authentication>() }
-			.blockOptional()
-			.orElse(null)
+		return try {
+			@Suppress("UNCHECKED_CAST")
+			val stored = contextView.get(SecurityContext::class.java as Any)
+			val authentication: Authentication? = when (stored) {
+				is SecurityContext -> stored.authentication
+				is Mono<*> -> {
+					@Suppress("UNCHECKED_CAST")
+					(stored as Mono<SecurityContext>)
+						.flatMap { context -> Mono.justOrEmpty(context.authentication) }
+						.onErrorResume { Mono.empty() }
+						.blockOptional()
+						.orElse(null)
+				}
+				else -> null
+			}
 
-		if (authentication == null || !authentication.isAuthenticated) {
-			return anonymousPrincipal()
+			if (authentication == null || !authentication.isAuthenticated) {
+				return anonymousPrincipal()
+			}
+
+			val roles = authentication.authorities
+				.joinToString(",") { authority -> (authority.authority ?: "").removePrefix("ROLE_") }
+				.ifBlank { "-" }
+
+			mapOf(
+				"principal" to (authentication.name ?: "anonymous"),
+				"roles" to roles,
+				"authenticated" to "true",
+			)
+		} catch (_: NoSuchElementException) {
+			anonymousPrincipal()
+		} catch (_: Exception) {
+			anonymousPrincipal()
 		}
-
-		val roles = authentication.authorities
-			.joinToString(",") { authority -> (authority.authority ?: "").removePrefix("ROLE_") }
-			.ifBlank { "-" }
-
-		return mapOf(
-			"principal" to (authentication.name ?: "anonymous"),
-			"roles" to roles,
-			"authenticated" to "true",
-		)
 	}
 
 	fun format(metadata: Map<String, String>): String =

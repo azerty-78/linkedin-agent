@@ -2,16 +2,59 @@ package com.revolut.agent.exception
 
 import com.revolut.agent.exception.ai.AiGenerationException
 import com.revolut.agent.exception.subscriber.SubscriberAlreadyActiveException
+import com.revolut.agent.service.linkedin.LinkedInOAuthException
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.security.authentication.BadCredentialsException
 import org.springframework.security.core.AuthenticationException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
+import org.springframework.web.bind.support.WebExchangeBindException
 import reactor.core.publisher.Mono
 
 @RestControllerAdvice
 class GlobalExceptionHandler {
+
+	@ExceptionHandler(WebExchangeBindException::class)
+	fun handleValidationException(ex: WebExchangeBindException): Mono<ResponseEntity<Map<String, Any>>> {
+		val message = ex.bindingResult.fieldErrors
+			.firstOrNull()
+			?.defaultMessage
+			?: "Validation failed"
+		return Mono.just(
+			ResponseEntity.status(HttpStatus.BAD_REQUEST)
+				.body(
+					mapOf(
+						"error" to message,
+						"status" to 400,
+					),
+				),
+		)
+	}
+
+	@ExceptionHandler(IllegalArgumentException::class)
+	fun handleIllegalArgument(ex: IllegalArgumentException): Mono<ResponseEntity<Map<String, Any>>> =
+		Mono.just(
+			ResponseEntity.status(HttpStatus.BAD_REQUEST)
+				.body(
+					mapOf(
+						"error" to (ex.message ?: "Bad request"),
+						"status" to 400,
+					),
+				),
+		)
+
+	@ExceptionHandler(LinkedInOAuthException::class)
+	fun handleLinkedInOAuth(ex: LinkedInOAuthException): Mono<ResponseEntity<Map<String, Any>>> =
+		Mono.just(
+			ResponseEntity.status(HttpStatus.BAD_REQUEST)
+				.body(
+					mapOf(
+						"error" to (ex.message ?: "LinkedIn OAuth failed"),
+						"status" to 400,
+					),
+				),
+		)
 
 	@ExceptionHandler(BadCredentialsException::class, AuthenticationException::class)
 	fun handleAuthenticationException(ex: AuthenticationException): Mono<ResponseEntity<Map<String, Any>>> =

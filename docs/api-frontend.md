@@ -693,15 +693,24 @@ Si popup plus tard : après redirect backend vers le front, la page popup lit `c
 
 ### 8.8 Scopes actuels (backend)
 
-L’URL d’auth demande : `openid profile email w_member_social`  
-(`w_member_social` = produit **Share on LinkedIn** dans le portail — obligatoire pour publier).  
-`w_organization_social` plus tard pour les Pages.
+L’URL d’auth demande : `openid profile email w_organization_social`  
+(`w_organization_social` = publication **en tant que la Page** — produit Community Management / permissions org).  
+Le profil perso n’est **pas** la cible de publication.
 
 ---
 
 ## 8bis. Publication LinkedIn — `/api/linkedin/publish-test` & historique
 
-> Publie sur le **profil personnel** (`linkedInUserUrn`). Pas encore la Page org.
+> Publie **uniquement sur la Page entreprise** (`linkedInOrganizationUrn`).  
+> Pas de post sur le compte perso, pas de repost automatique.
+
+**Prérequis front :**
+1. Connexion OAuth admin (`CONNECTED`)
+2. `PUT /api/linkedin/organization-urn` avec `urn:li:organization:{idPage}`
+3. Compte LinkedIn = admin de cette Page
+4. Scope `w_organization_social` visible dans le portail + reconnexion après activation
+
+Si URN Page manquant → `422` avec message clair.
 
 ### `POST /api/linkedin/publish-test` (JWT, temporaire)
 

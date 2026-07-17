@@ -32,9 +32,10 @@ class LinkedInPublishingService(
 	private val webClient: WebClient = webClientBuilder.clone().build()
 
 	/**
-	 * Publie [content] sur le profil membre connecté (UGC Posts).
+	 * Publie [content] sur la **Page entreprise** LinkedIn (`linkedInOrganizationUrn`).
+	 * Pas de publication sur le profil perso, pas de repost automatique.
 	 * En cas d'échec HTTP LinkedIn : retourne un [PublicationRecord] FAILED (pas d'exception 500).
-	 * Erreurs métier préalables (non connecté / token expiré) → [LinkedInPublishingException] (422).
+	 * Erreurs métier préalables → [LinkedInPublishingException] (422).
 	 */
 	fun publish(content: String, aiProvider: LlmProvider): Mono<PublicationRecord> {
 		val trimmed = content.trim()
@@ -141,17 +142,21 @@ class LinkedInPublishingService(
 	}
 
 	/**
-	 * Cible actuelle : profil personnel ([LinkedInConnection.linkedInUserUrn]).
-	 * Quand w_organization_social sera approuvé, brancher ici
-	 * [LinkedInConnection.linkedInOrganizationUrn] (champ déjà stocké via PUT /organization-urn).
+	 * Cible : Page entreprise uniquement ([LinkedInConnection.linkedInOrganizationUrn]).
+	 * Le profil perso ([LinkedInConnection.linkedInUserUrn]) sert à l'OAuth / identité admin,
+	 * pas comme auteur du post. Pas de repost vers le feed personnel.
 	 */
 	private fun resolveTargetUrn(connection: LinkedInConnection): String {
-		val userUrn = connection.linkedInUserUrn?.trim()?.takeIf { it.isNotEmpty() }
+		val orgUrn = connection.linkedInOrganizationUrn?.trim()?.takeIf { it.isNotEmpty() }
 			?: throw LinkedInPublishingException(
-				"URN membre LinkedIn manquant — reconnectez-vous via /api/linkedin/auth-url",
+				"URN de la Page LinkedIn manquant. " +
+					"Renseignez-le via PUT /api/linkedin/organization-urn " +
+					"(ex. urn:li:organization:123456789).",
 			)
-		// Future: if (connection.linkedInOrganizationUrn != null) return organization URN
-		return userUrn
+		require(orgUrn.startsWith("urn:li:organization:")) {
+			"linkedInOrganizationUrn must start with urn:li:organization:"
+		}
+		return orgUrn
 	}
 
 	/**
@@ -239,9 +244,11 @@ class LinkedInPublishingService(
 			val linkedInDetail = sanitizeLinkedInErrorBody(http.responseBodyAsString)
 			val base = when (http.statusCode.value()) {
 				401 -> "Token LinkedIn invalide ou révoqué — reconnectez-vous via /api/linkedin/auth-url."
-				403 -> "Permission refusée (403). Vérifiez : 1) produit Share on LinkedIn, " +
-					"2) déconnexion puis reconnexion OAuth pour obtenir w_member_social sur le token, " +
-					"3) API /rest/posts (plus ugcPosts)."
+				403 -> "Permission refusée (403). Pour publier sur une Page : " +
+					"1) scope w_organization_social (Community Management / Share), " +
+					"2) reconnecter OAuth, " +
+					"3) compte admin de la Page, " +
+					"4) URN Page renseigné (PUT /organization-urn)."
 				422 -> "LinkedIn a rejeté le contenu du post (format ou politique)."
 				429 -> "Quota LinkedIn dépassé (rate limit) — réessayez plus tard."
 				in 500..599 -> "Erreur serveur LinkedIn (${http.statusCode.value()}) — réessayez plus tard."

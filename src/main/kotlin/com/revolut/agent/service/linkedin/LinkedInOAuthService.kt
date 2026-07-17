@@ -44,10 +44,10 @@ class LinkedInOAuthService(
 		val state = generateState()
 		pendingStates[state] = Instant.now()
 
-		// openid/profile/email : Sign In with LinkedIn (OpenID Connect)
-		// w_member_social : Share on LinkedIn (requis pour POST /v2/ugcPosts) — activer le produit dans le portail
-		// w_organization_social : plus tard (Community Management API / publication Page)
-		val scope = listOf("openid", "profile", "email", "w_member_social").joinToString(" ")
+		// openid/profile/email : identité admin
+		// w_organization_social : publier EN TANT QUE la Page entreprise (cible produit)
+		// w_member_social : optionnel (profil perso) — non utilisé pour la publication Page
+		val scope = listOf("openid", "profile", "email", "w_organization_social").joinToString(" ")
 
 		val authorizationUrl = UriComponentsBuilder
 			.fromUriString(AUTHORIZATION_URL)
@@ -85,9 +85,9 @@ class LinkedInOAuthService(
 				}
 				val grantedScopes = tokenResponse.scope.orEmpty()
 				log.info("LinkedIn token granted scopes={}", grantedScopes)
-				if (!grantedScopes.split(Regex("[,\\s]+")).any { it.equals("w_member_social", ignoreCase = true) }) {
+				if (!grantedScopes.split(Regex("[,\\s]+")).any { it.equals("w_organization_social", ignoreCase = true) }) {
 					log.warn(
-						"LinkedIn token WITHOUT w_member_social — publication will fail until user re-consents. " +
+						"LinkedIn token WITHOUT w_organization_social — Page publishing will fail until user re-consents. " +
 							"Granted: {}",
 						grantedScopes,
 					)

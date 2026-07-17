@@ -8,8 +8,10 @@ import com.revolut.agent.config.LinkedInProperties
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.boot.runApplication
+import org.springframework.scheduling.annotation.EnableScheduling
 
 @SpringBootApplication
+@EnableScheduling
 @EnableConfigurationProperties(
 	JwtProperties::class,
 	BootstrapProperties::class,

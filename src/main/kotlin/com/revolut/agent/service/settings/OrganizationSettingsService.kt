@@ -76,6 +76,7 @@ class OrganizationSettingsService(
 					encryptedAnthropicKey = resolveEncryptedKey(base.encryptedAnthropicKey, request.anthropicApiKey),
 					encryptedGeminiKey = resolveEncryptedKey(base.encryptedGeminiKey, request.geminiApiKey),
 					linkedInOrganizationId = request.linkedInOrganizationId?.trim()?.takeIf { it.isNotEmpty() },
+					schedulerEnabled = request.schedulerEnabled ?: base.schedulerEnabled,
 					updatedAt = Instant.now(),
 					updatedBy = updatedByEmail,
 				)

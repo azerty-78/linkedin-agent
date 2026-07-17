@@ -768,8 +768,11 @@ Liste triée du plus récent au plus ancien (max 100).
 | Statut LinkedIn | `GET /api/linkedin/status` |
 | URN Page | `PUT /api/linkedin/organization-urn` |
 | Déconnexion LinkedIn | `DELETE /api/linkedin/disconnect` |
-| Publier (test) | `POST /api/linkedin/publish-test` |
-| Historique publications | `GET /api/linkedin/publications?limit=` |
+| Publier (test LinkedIn) | `POST /api/linkedin/publish-test` |
+| Historique LinkedIn records | `GET /api/linkedin/publications?limit=` |
+| Orchestration manuelle | `POST /api/publications/trigger` |
+| Historique orchestration | `GET /api/publications?page=&size=` |
+| Détail run | `GET /api/publications/{id}` |
 
 ### Exemple flux settings + génération (tests gratuits)
 
@@ -799,6 +802,9 @@ Liste triée du plus récent au plus ancien (max 100).
 | `DELETE` | `/api/linkedin/disconnect` | Oui | — | `204` |
 | `POST` | `/api/linkedin/publish-test` | Oui | `{ content? }` | `200` (ou `422`) |
 | `GET` | `/api/linkedin/publications` | Oui | query `limit?` | `200` |
+| `POST` | `/api/publications/trigger` | Oui | — | `200` / `409` |
+| `GET` | `/api/publications` | Oui | `page`, `size` | `200` |
+| `GET` | `/api/publications/{id}` | Oui | path id | `200` / `404` |
 | `GET` | `/api/linkedin/callback` | Non (LinkedIn only) | `code`/`state`/`error` → 302 front | `302` |
 | `GET` | `/actuator/health` | Non | — | `200` |
 

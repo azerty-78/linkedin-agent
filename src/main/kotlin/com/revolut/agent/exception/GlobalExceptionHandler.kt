@@ -2,6 +2,7 @@ package com.revolut.agent.exception
 
 import com.revolut.agent.exception.ai.AiGenerationException
 import com.revolut.agent.exception.linkedin.LinkedInPublishingException
+import com.revolut.agent.exception.publication.PublicationAlreadyRunningException
 import com.revolut.agent.exception.subscriber.SubscriberAlreadyActiveException
 import com.revolut.agent.service.linkedin.LinkedInOAuthException
 import org.springframework.http.HttpStatus
@@ -15,6 +16,20 @@ import reactor.core.publisher.Mono
 
 @RestControllerAdvice
 class GlobalExceptionHandler {
+
+	@ExceptionHandler(PublicationAlreadyRunningException::class)
+	fun handlePublicationAlreadyRunning(
+		ex: PublicationAlreadyRunningException,
+	): Mono<ResponseEntity<Map<String, Any>>> =
+		Mono.just(
+			ResponseEntity.status(HttpStatus.CONFLICT)
+				.body(
+					mapOf(
+						"error" to (ex.message ?: "Publication already running"),
+						"status" to 409,
+					),
+				),
+		)
 
 	@ExceptionHandler(LinkedInPublishingException::class)
 	fun handleLinkedInPublishing(ex: LinkedInPublishingException): Mono<ResponseEntity<Map<String, Any>>> =

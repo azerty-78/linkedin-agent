@@ -32,4 +32,6 @@ data class UpdateOrganizationSettingsRequest(
 	val anthropicApiKey: String? = null,
 	val geminiApiKey: String? = null,
 	val linkedInOrganizationId: String? = null,
+	/** Active le scheduler de publication quotidienne. Null = conserver. */
+	val schedulerEnabled: Boolean? = null,
 )

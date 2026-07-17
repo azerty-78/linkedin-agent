@@ -1,6 +1,7 @@
 package com.revolut.agent.exception
 
 import com.revolut.agent.exception.ai.AiGenerationException
+import com.revolut.agent.exception.linkedin.LinkedInPublishingException
 import com.revolut.agent.exception.subscriber.SubscriberAlreadyActiveException
 import com.revolut.agent.service.linkedin.LinkedInOAuthException
 import org.springframework.http.HttpStatus
@@ -14,6 +15,18 @@ import reactor.core.publisher.Mono
 
 @RestControllerAdvice
 class GlobalExceptionHandler {
+
+	@ExceptionHandler(LinkedInPublishingException::class)
+	fun handleLinkedInPublishing(ex: LinkedInPublishingException): Mono<ResponseEntity<Map<String, Any>>> =
+		Mono.just(
+			ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
+				.body(
+					mapOf(
+						"error" to (ex.message ?: "LinkedIn publishing precondition failed"),
+						"status" to 422,
+					),
+				),
+		)
 
 	@ExceptionHandler(WebExchangeBindException::class)
 	fun handleValidationException(ex: WebExchangeBindException): Mono<ResponseEntity<Map<String, Any>>> {

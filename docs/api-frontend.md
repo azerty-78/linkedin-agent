@@ -693,9 +693,53 @@ Si popup plus tard : après redirect backend vers le front, la page popup lit `c
 
 ### 8.8 Scopes actuels (backend)
 
-L’URL d’auth demande uniquement : `openid profile email`  
-(aligné sur le produit **Sign In with LinkedIn using OpenID Connect**).  
-`w_member_social` sera ajouté plus tard pour la publication (produit Share on LinkedIn).
+L’URL d’auth demande : `openid profile email w_member_social`  
+(`w_member_social` = produit **Share on LinkedIn** dans le portail — obligatoire pour publier).  
+`w_organization_social` plus tard pour les Pages.
+
+---
+
+## 8bis. Publication LinkedIn — `/api/linkedin/publish-test` & historique
+
+> Publie sur le **profil personnel** (`linkedInUserUrn`). Pas encore la Page org.
+
+### `POST /api/linkedin/publish-test` (JWT, temporaire)
+
+| Body | Comportement |
+|------|----------------|
+| `{}` ou omis | Génère via IA (`generateDailyTip`) puis publie |
+| `{ "content": "Mon texte…" }` | Publie ce texte tel quel |
+
+**Réponse `200`** (même si LinkedIn a échoué HTTP — alors `status: "FAILED"`) :
+
+```json
+{
+  "id": "...",
+  "content": "...",
+  "aiProvider": "GEMINI",
+  "targetUrn": "urn:li:person:…",
+  "linkedInPostId": "urn:li:share:…",
+  "status": "PUBLISHED",
+  "errorMessage": null,
+  "createdAt": "…",
+  "publishedAt": "…"
+}
+```
+
+`status` : `PENDING` | `PUBLISHED` | `FAILED`
+
+**`422`** si LinkedIn non connecté / token expiré (reconnecter via auth-url).
+
+### `GET /api/linkedin/publications?limit=20` (JWT)
+
+Liste triée du plus récent au plus ancien (max 100).
+
+### UI suggérée
+
+1. Vérifier `GET /api/linkedin/status` → `CONNECTED`
+2. Bouton « Publier un tip test » → `POST /publish-test`
+3. Afficher badge selon `status` + `linkedInPostId` / `errorMessage`
+4. Écran historique → `GET /publications`
 
 ---
 
@@ -715,6 +759,8 @@ L’URL d’auth demande uniquement : `openid profile email`
 | Statut LinkedIn | `GET /api/linkedin/status` |
 | URN Page | `PUT /api/linkedin/organization-urn` |
 | Déconnexion LinkedIn | `DELETE /api/linkedin/disconnect` |
+| Publier (test) | `POST /api/linkedin/publish-test` |
+| Historique publications | `GET /api/linkedin/publications?limit=` |
 
 ### Exemple flux settings + génération (tests gratuits)
 
@@ -742,6 +788,8 @@ L’URL d’auth demande uniquement : `openid profile email`
 | `GET` | `/api/linkedin/status` | Oui | — | `200` |
 | `PUT` | `/api/linkedin/organization-urn` | Oui | `{ organizationUrn }` | `200` |
 | `DELETE` | `/api/linkedin/disconnect` | Oui | — | `204` |
+| `POST` | `/api/linkedin/publish-test` | Oui | `{ content? }` | `200` (ou `422`) |
+| `GET` | `/api/linkedin/publications` | Oui | query `limit?` | `200` |
 | `GET` | `/api/linkedin/callback` | Non (LinkedIn only) | `code`/`state`/`error` → 302 front | `302` |
 | `GET` | `/actuator/health` | Non | — | `200` |
 

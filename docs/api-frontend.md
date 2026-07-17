@@ -504,7 +504,202 @@ Utile pour un indicateur « API up » dans le frontend / CI.
 
 ---
 
-## 8. Checklist intégration frontend
+## 8. LinkedIn OAuth2 — `/api/linkedin` (connexion uniquement)
+
+> **Pas de publication UGC pour l’instant** — seulement connecter le compte, stocker le token chiffré côté backend, saisir l’URN de Page.
+
+### 8.1 Flow à implémenter (important)
+
+```
+[Dashboard LinkedIn]
+    │
+    ├─ mount → GET /api/linkedin/status  (JWT)
+    │
+    ├─ clic « Connecter LinkedIn »
+    │     → GET /api/linkedin/auth-url  (JWT)
+    │     → window.location.href = authorizationUrl
+    │       (ou window.open en popup — voir §8.6)
+    │
+    │   ┌─ navigateur → LinkedIn (consentement)
+    │   └─ LinkedIn → GET /api/linkedin/callback  (PUBLIC, sans JWT)
+    │         → backend échange code + stocke token
+    │         → 302 → {FRONTEND_URL}/dashboard/linkedin?connected=true
+    │              ou ?connected=false&error=...
+    │
+    └─ page /dashboard/linkedin lit les query params
+          → toast succès / erreur
+          → GET /api/linkedin/status pour rafraîchir l’UI
+          → nettoyer l’URL (replaceState) pour éviter un toast au refresh
+```
+
+**Le frontend ne voit jamais** `code`, `client_secret` ni `access_token`. Le callback est 100 % backend.
+
+### 8.2 Types TypeScript
+
+```ts
+type LinkedInConnectionStatus =
+  | "NOT_CONNECTED"
+  | "CONNECTED"
+  | "EXPIRED"
+  | "ERROR";
+
+type LinkedInStatusResponse = {
+  status: LinkedInConnectionStatus;
+  linkedInUserUrn: string | null;
+  linkedInOrganizationUrn: string | null;
+  connectedAt: string | null; // ISO-8601
+  lastError: string | null;
+};
+
+type LinkedInAuthUrlResponse = {
+  authorizationUrl: string;
+};
+```
+
+### 8.3 Endpoints
+
+#### `GET /api/linkedin/status`
+
+| | |
+|--|--|
+| **Auth** | JWT obligatoire |
+| **Succès** | `200` → `LinkedInStatusResponse` |
+
+Afficher selon `status` :
+- `NOT_CONNECTED` → bouton « Connecter LinkedIn »
+- `CONNECTED` → badge vert + URN user + formulaire Page URN + bouton Déconnecter
+- `EXPIRED` / `ERROR` → message + `lastError` + bouton « Reconnecter »
+
+#### `GET /api/linkedin/auth-url`
+
+| | |
+|--|--|
+| **Auth** | JWT obligatoire |
+| **Succès** | `200` → `{ "authorizationUrl": "https://www.linkedin.com/oauth/v2/authorization?..." }` |
+
+```ts
+async function connectLinkedIn(token: string) {
+  const res = await fetch(`${API_BASE}/api/linkedin/auth-url`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(await res.text());
+  const { authorizationUrl } = await res.json();
+  // Redirection pleine page (recommandé en local) :
+  window.location.assign(authorizationUrl);
+}
+```
+
+#### `PUT /api/linkedin/organization-urn`
+
+| | |
+|--|--|
+| **Auth** | JWT |
+| **Body** | `{ "organizationUrn": "urn:li:organization:123456789" }` |
+| **Succès** | `200` → `LinkedInStatusResponse` |
+| **Erreur** | `400` si l’URN ne commence pas par `urn:li:organization:` |
+
+```ts
+// Validation UI avant envoi
+const URN_RE = /^urn:li:organization:.+/;
+if (!URN_RE.test(value.trim())) {
+  setError("Doit commencer par urn:li:organization:");
+  return;
+}
+```
+
+L’admin récupère l’ID Page dans l’URL admin LinkedIn  
+(`https://www.linkedin.com/company/XXXXX/admin/...` → `urn:li:organization:XXXXX`).
+
+#### `DELETE /api/linkedin/disconnect`
+
+| | |
+|--|--|
+| **Auth** | JWT |
+| **Succès** | `204` (pas de body) |
+
+Puis rappeler `GET /status` → doit être `NOT_CONNECTED`.
+
+#### `GET /api/linkedin/callback` — **ne pas appeler depuis le front**
+
+Public. LinkedIn y redirige le navigateur. Le backend renvoie un **302** vers :
+
+| Résultat | URL |
+|----------|-----|
+| OK | `{FRONTEND_URL}/dashboard/linkedin?connected=true` |
+| KO / refus | `{FRONTEND_URL}/dashboard/linkedin?connected=false&error=...` |
+
+`FRONTEND_URL` côté backend = `http://localhost:3000` en local (variable `FRONTEND_URL` / `app.frontend-url`).
+
+### 8.4 Page obligatoire : `/dashboard/linkedin`
+
+Au mount :
+
+```ts
+useEffect(() => {
+  const params = new URLSearchParams(window.location.search);
+  const connected = params.get("connected");
+  const error = params.get("error");
+
+  if (connected === "true") {
+    toast.success("Compte LinkedIn connecté");
+  } else if (connected === "false") {
+    toast.error(error ? decodeURIComponent(error) : "Connexion LinkedIn refusée");
+  }
+
+  if (connected !== null) {
+    // Évite de re-afficher le toast au F5
+    window.history.replaceState({}, "", "/dashboard/linkedin");
+  }
+
+  void refreshStatus(); // GET /api/linkedin/status
+}, []);
+```
+
+Cas d’erreur fréquents dans `error` :
+- `user_cancelled_login` / `access_denied` → l’utilisateur a annulé
+- `missing_code_or_state` / messages OAuth → problème technique
+
+### 8.5 UI suggérée (états)
+
+| Zone | Contenu |
+|------|---------|
+| Header | Titre « LinkedIn » + badge statut |
+| Non connecté | Texte court + CTA « Connecter avec LinkedIn » |
+| Connecté | `linkedInUserUrn`, date `connectedAt`, champ URN Page + Enregistrer, CTA Déconnecter |
+| Erreur | Afficher `lastError` + CTA Reconnecter |
+
+**Ne jamais** afficher ni stocker de token LinkedIn côté front.
+
+### 8.6 Popup vs redirection pleine page
+
+| Approche | Avantage | Inconvénient |
+|----------|----------|--------------|
+| `window.location.assign(url)` | Simple, fiable en local | Quitte le dashboard pendant le consent |
+| `window.open(url, "linkedin-oauth", "popup")` | Garde le dashboard ouvert | Faut écouter le retour (polling `status` ou `postMessage`) — plus complexe |
+
+**Recommandation MVP :** redirection pleine page. Après retour sur `/dashboard/linkedin?connected=...`, l’utilisateur est déjà sur la bonne page.
+
+Si popup plus tard : après redirect backend vers le front, la page popup lit `connected` et fait `window.opener.postMessage(...)` puis `window.close()` ; le parent écoute et rafraîchit `status`.
+
+### 8.7 Checklist frontend LinkedIn
+
+- [ ] Route `/dashboard/linkedin` existe (même sans design final)
+- [ ] `FRONTEND_URL` backend = origine du front (`http://localhost:3000`)
+- [ ] Connexion : `auth-url` → redirect LinkedIn
+- [ ] Retour : lire `connected` / `error`, toast, `replaceState`, `GET status`
+- [ ] Formulaire URN Page avec validation `urn:li:organization:`
+- [ ] Déconnexion : `DELETE` + refresh status
+- [ ] Aucun appel direct à `/api/linkedin/callback`
+
+### 8.8 Scopes actuels (backend)
+
+L’URL d’auth demande uniquement : `openid profile email`  
+(aligné sur le produit **Sign In with LinkedIn using OpenID Connect**).  
+`w_member_social` sera ajouté plus tard pour la publication (produit Share on LinkedIn).
+
+---
+
+## 9. Checklist intégration frontend
 
 | Écran | Endpoints |
 |-------|-----------|
@@ -516,6 +711,10 @@ Utile pour un indicateur « API up » dans le frontend / CI.
 | Ajout abonné | `POST /api/subscribers` |
 | Suppression | `DELETE /api/subscribers/{id}` |
 | Bouton « Générer un tip » | `POST /api/ai/generate-test` |
+| Connexion LinkedIn | `GET /api/linkedin/auth-url` + page `/dashboard/linkedin` |
+| Statut LinkedIn | `GET /api/linkedin/status` |
+| URN Page | `PUT /api/linkedin/organization-urn` |
+| Déconnexion LinkedIn | `DELETE /api/linkedin/disconnect` |
 
 ### Exemple flux settings + génération (tests gratuits)
 
@@ -525,7 +724,7 @@ Utile pour un indicateur « API up » dans le frontend / CI.
 
 ---
 
-## 9. Récap URLs (toutes les routes fonctionnelles)
+## 10. Récap URLs (toutes les routes fonctionnelles)
 
 | Méthode | URL | Auth | Body / params | Succès |
 |---------|-----|------|---------------|--------|
@@ -539,6 +738,11 @@ Utile pour un indicateur « API up » dans le frontend / CI.
 | `DELETE` | `/api/subscribers/{id}` | Oui | path `id` | `204` |
 | `GET` | `/api/public/unsubscribe/{token}` | Non | path `token` → HTML | `200` |
 | `POST` | `/api/ai/generate-test` | Oui | — | `200` |
+| `GET` | `/api/linkedin/auth-url` | Oui | — | `200` |
+| `GET` | `/api/linkedin/status` | Oui | — | `200` |
+| `PUT` | `/api/linkedin/organization-urn` | Oui | `{ organizationUrn }` | `200` |
+| `DELETE` | `/api/linkedin/disconnect` | Oui | — | `204` |
+| `GET` | `/api/linkedin/callback` | Non (LinkedIn only) | `code`/`state`/`error` → 302 front | `302` |
 | `GET` | `/actuator/health` | Non | — | `200` |
 
 ---

@@ -1,5 +1,7 @@
 package com.revolut.agent.service.settings
+
 import com.revolut.agent.config.EncryptionProperties
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import java.nio.charset.StandardCharsets
 import java.security.SecureRandom
@@ -13,6 +15,7 @@ class EncryptionService(
 	encryptionProperties: EncryptionProperties,
 ) {
 
+	private val log = LoggerFactory.getLogger(javaClass)
 	private val secretKey = SecretKeySpec(encryptionProperties.keyBytes, "AES")
 
 	fun encrypt(plainText: String): String {
@@ -40,6 +43,18 @@ class EncryptionService(
 
 		return String(plainBytes, StandardCharsets.UTF_8)
 	}
+
+	/** Returns null if the payload cannot be decrypted (wrong ENCRYPTION_KEY, corrupt data). */
+	fun tryDecrypt(cipherText: String): String? =
+		try {
+			decrypt(cipherText)
+		} catch (ex: Exception) {
+			log.warn(
+				"Failed to decrypt value (ENCRYPTION_KEY mismatch or corrupt ciphertext): {}",
+				ex.javaClass.simpleName,
+			)
+			null
+		}
 
 	fun mask(plainText: String?): String {
 		if (plainText.isNullOrBlank()) {

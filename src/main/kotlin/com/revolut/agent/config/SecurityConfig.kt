@@ -3,6 +3,7 @@ package com.revolut.agent.config
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.core.io.buffer.DataBuffer
+import org.springframework.http.HttpMethod
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity
@@ -12,27 +13,55 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder
 import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.security.web.server.SecurityWebFilterChain
 import org.springframework.security.web.server.context.NoOpServerSecurityContextRepository
+import org.springframework.web.cors.CorsConfiguration
+import org.springframework.web.cors.reactive.CorsConfigurationSource
+import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource
 import reactor.core.publisher.Mono
 
 @Configuration
 @EnableWebFluxSecurity
 class SecurityConfig(
 	private val jwtAuthenticationWebFilter: JwtAuthenticationWebFilter,
+	private val appFrontendProperties: AppFrontendProperties,
 ) {
 
 	@Bean
 	fun passwordEncoder(): PasswordEncoder = BCryptPasswordEncoder()
 
 	@Bean
+	fun corsConfigurationSource(): CorsConfigurationSource {
+		val config = CorsConfiguration().apply {
+			allowCredentials = true
+			allowedOrigins = appFrontendProperties.resolvedCorsOrigins()
+			allowedMethods = listOf(
+				HttpMethod.GET.name(),
+				HttpMethod.POST.name(),
+				HttpMethod.PUT.name(),
+				HttpMethod.PATCH.name(),
+				HttpMethod.DELETE.name(),
+				HttpMethod.OPTIONS.name(),
+			)
+			allowedHeaders = listOf("*")
+			exposedHeaders = listOf("Authorization")
+			maxAge = 3600
+		}
+		return UrlBasedCorsConfigurationSource().apply {
+			registerCorsConfiguration("/**", config)
+		}
+	}
+
+	@Bean
 	fun securityWebFilterChain(http: ServerHttpSecurity): SecurityWebFilterChain =
 		http
 			.csrf { it.disable() }
+			.cors { }
 			.httpBasic { it.disable() }
 			.formLogin { it.disable() }
 			.logout { it.disable() }
 			.securityContextRepository(NoOpServerSecurityContextRepository.getInstance())
 			.authorizeExchange { exchanges ->
 				exchanges
+					.pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 					.pathMatchers("/api/auth/login").permitAll()
 					.pathMatchers("/api/public/**").permitAll()
 					.pathMatchers("/api/linkedin/callback").permitAll()

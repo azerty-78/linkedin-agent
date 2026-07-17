@@ -15,7 +15,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.mock
-import org.mockito.Mockito.whenever
+import org.mockito.Mockito.`when`
 import org.springframework.core.env.Environment
 import reactor.core.publisher.Mono
 import reactor.test.StepVerifier
@@ -39,7 +39,7 @@ class LinkedInCredentialsCrudTest {
 		connectionRepository = mock(LinkedInConnectionRepository::class.java)
 
 		val env = mock(Environment::class.java)
-		whenever(env.activeProfiles).thenReturn(emptyArray())
+		`when`(env.activeProfiles).thenReturn(emptyArray())
 		val encryptionProperties = EncryptionProperties(env)
 		encryptionProperties.key = Base64.getEncoder().encodeToString(ByteArray(32) { 7 })
 		encryptionProperties.init()
@@ -47,15 +47,15 @@ class LinkedInCredentialsCrudTest {
 
 		stored.set(OrganizationSettings(id = "settings-1", companyName = "KOBE", contentTopic = "tips"))
 
-		whenever(settingsRepository.findFirstByOrderByUpdatedAtDesc()).thenAnswer {
+		`when`(settingsRepository.findFirstByOrderByUpdatedAtDesc()).thenAnswer {
 			Mono.just(stored.get())
 		}
-		whenever(settingsRepository.save(any(OrganizationSettings::class.java))).thenAnswer { inv ->
+		`when`(settingsRepository.save(any(OrganizationSettings::class.java))).thenAnswer { inv ->
 			val saved = inv.getArgument<OrganizationSettings>(0)
 			stored.set(saved)
 			Mono.just(saved)
 		}
-		whenever(connectionRepository.findById(any(String::class.java))).thenReturn(Mono.empty())
+		`when`(connectionRepository.findById(any(String::class.java))).thenReturn(Mono.empty())
 
 		service = OrganizationSettingsService(
 			organizationSettingsRepository = settingsRepository,

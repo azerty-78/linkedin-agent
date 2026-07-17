@@ -19,7 +19,7 @@ import reactor.core.publisher.Mono
  */
 @RestController
 @RequestMapping("/api/linkedin")
-class PublicationController(
+class LinkedInPublicationController(
 	private val publicationOrchestrationService: PublicationOrchestrationService,
 ) {
 

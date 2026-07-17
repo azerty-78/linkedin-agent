@@ -38,3 +38,10 @@ out/
 
 ### Kotlin ###
 .kotlin
+
+### Secrets / env locaux (NE JAMAIS COMMITTER) ###
+setup/.env
+.env
+.env.local
+src/main/resources/application-prod.properties
+

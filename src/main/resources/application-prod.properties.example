@@ -1,0 +1,115 @@
+# =============================================================================
+# Profile prod — modèle (COMMITTÉ). Copier vers application-prod.properties
+# en local/prod ; ce fichier réel est ignoré par git.
+# Toutes les secrets viennent UNIQUEMENT des variables d'environnement.
+# =============================================================================
+
+# ========================================
+# APPLICATION
+# ========================================
+spring.application.name=linkedin-agent
+server.port=8080
+
+# ========================================
+# SPRING AI - ANTHROPIC CLAUDE
+# ========================================
+spring.ai.anthropic.api-key=${ANTHROPIC_API_KEY:}
+spring.ai.openai.api-key=${OPENAI_API_KEY:}
+spring.ai.anthropic.chat.model=${AI_ANTHROPIC_MODEL:claude-haiku-4-5}
+spring.ai.anthropic.chat.max-tokens=2048
+spring.ai.anthropic.chat.temperature=0.7
+
+# Fallbacks if organization settings do not set a model
+ai.openai.model=${AI_OPENAI_MODEL:gpt-4o-mini}
+ai.anthropic.model=${AI_ANTHROPIC_MODEL:claude-haiku-4-5}
+ai.anthropic.max-tokens=1024
+ai.gemini.model=${AI_GEMINI_MODEL:gemini-3.5-flash}
+ai.gemini.api-base-url=https://generativelanguage.googleapis.com/v1beta
+ai.gemini.max-output-tokens=1024
+ai.max-output-tokens=1024
+ai.test.max-output-tokens=80
+ai.test.openai-model=gpt-4.1-nano
+ai.test.anthropic-model=claude-haiku-4-5
+ai.test.gemini-model=gemini-3.1-flash-lite
+ai.test.prefer-gemini=true
+
+# ========================================
+# MONGODB REACTIF
+# ========================================
+spring.mongodb.uri=${MONGODB_URI}
+spring.mongodb.database=linkedin_agent_db
+spring.data.mongodb.auto-index-creation=true
+
+# ========================================
+# EMAIL - SMTP
+# ========================================
+spring.mail.host=${MAIL_HOST}
+spring.mail.port=587
+spring.mail.username=${MAIL_USERNAME}
+spring.mail.password=${MAIL_PASSWORD}
+spring.mail.properties.mail.smtp.auth=true
+spring.mail.properties.mail.smtp.starttls.enable=true
+spring.mail.properties.mail.smtp.starttls.required=true
+spring.mail.properties.mail.smtp.connectiontimeout=5000
+spring.mail.properties.mail.smtp.timeout=5000
+spring.mail.properties.mail.smtp.writetimeout=5000
+
+# ========================================
+# JWT
+# ========================================
+jwt.secret=${JWT_SECRET}
+jwt.expiration=86400000
+
+# ========================================
+# BOOTSTRAP ADMIN (obligatoire en prod via variables d'environnement)
+# ========================================
+app.bootstrap.admin-email=${ADMIN_EMAIL}
+app.bootstrap.admin-password=${ADMIN_PASSWORD}
+
+# ========================================
+# ENCRYPTION (AES-256 — obligatoire en prod)
+# ========================================
+app.encryption.key=${ENCRYPTION_KEY}
+
+# ========================================
+# SCHEDULER
+# ========================================
+spring.task.scheduling.pool.size=2
+spring.task.scheduling.thread-name-prefix=scheduler-
+
+# ========================================
+# FRONTEND (OAuth redirects)
+# ========================================
+app.frontend-url=${FRONTEND_URL}
+
+# ========================================
+# LINKEDIN OAUTH2
+# ========================================
+linkedin.client-id=${LINKEDIN_CLIENT_ID}
+linkedin.client-secret=${LINKEDIN_CLIENT_SECRET}
+linkedin.redirect-uri=${LINKEDIN_REDIRECT_URI}
+linkedin.api-base-url=https://api.linkedin.com/v2
+
+# ========================================
+# WEBCLIENT (appels externes)
+# ========================================
+spring.webflux.timeout=30000
+webclient.connection-timeout=10000
+webclient.response-timeout=30000
+
+# ========================================
+# ACTUATOR - MONITORING
+# ========================================
+management.endpoints.web.exposure.include=health,info,metrics,scheduledtasks
+management.endpoint.health.show-details=never
+management.info.env.enabled=true
+info.app.name=LinkedIn Agent
+info.app.version=1.0.0
+
+# ========================================
+# LOGS
+# ========================================
+logging.level.root=WARN
+logging.level.com.revolut.agent=INFO
+logging.level.org.springframework.ai=WARN
+logging.pattern.console=%d{HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n

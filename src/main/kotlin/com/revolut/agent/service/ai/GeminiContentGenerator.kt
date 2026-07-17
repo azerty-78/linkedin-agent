@@ -8,7 +8,7 @@ import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.function.client.WebClientResponseException
 import org.springframework.web.reactive.function.client.awaitBody
-import org.springframework.web.util.UriComponentsBuilder
+import java.net.URI
 
 /**
  * Appel direct à l'API Google Generative Language (free tier AI Studio).
@@ -21,22 +21,25 @@ class GeminiContentGenerator(
 
 	override val provider: LlmProvider = LlmProvider.GEMINI
 
-	private val webClient: WebClient = webClientBuilder
-		.baseUrl(aiModelProperties.gemini.apiBaseUrl.trimEnd('/'))
-		.build()
+	/** Builder cloné sans baseUrl locale — on passe toujours une URL absolue https. */
+	private val webClient: WebClient = webClientBuilder.clone().build()
 
 	override suspend fun generate(command: AiGenerationCommand): String {
 		val resolvedModel = LlmModelCatalog.resolveGeminiModel(command.model)
+		val baseUrl = aiModelProperties.gemini.apiBaseUrl.trimEnd('/')
+			.ifBlank { "https://generativelanguage.googleapis.com/v1beta" }
+
+		require(baseUrl.startsWith("https://")) {
+			"ai.gemini.api-base-url must be an https URL, got: $baseUrl"
+		}
+
+		// URL absolue obligatoire — évite Connection refused sur localhost:80
+		val endpoint = URI.create("$baseUrl/models/$resolvedModel:generateContent")
 
 		val response = try {
-			val uri = UriComponentsBuilder
-				.fromPath("/models/{model}:generateContent")
-				.queryParam("key", command.apiKey)
-				.buildAndExpand(resolvedModel)
-				.toUri()
-
 			webClient.post()
-				.uri(uri)
+				.uri(endpoint)
+				.header("x-goog-api-key", command.apiKey)
 				.contentType(MediaType.APPLICATION_JSON)
 				.accept(MediaType.APPLICATION_JSON)
 				.bodyValue(

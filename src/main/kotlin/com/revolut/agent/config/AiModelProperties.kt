@@ -22,7 +22,8 @@ class AiModelProperties {
 	}
 
 	class Gemini {
-		var model: String = "gemini-2.0-flash"
+		/** Free tier actuel (gemini-2.0-flash arrêté en juin 2026). */
+		var model: String = "gemini-3.5-flash"
 		var apiBaseUrl: String = "https://generativelanguage.googleapis.com/v1beta"
 		var maxOutputTokens: Int = 180
 	}

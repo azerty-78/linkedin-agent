@@ -1,4 +1,4 @@
-# Fonctionnalités, rôles et sécurité
+﻿# Fonctionnalités, rôles et sécurité
 
 Document de référence pour le backend **LinkedIn Agent** (`com.revolut.agent`).
 
@@ -129,8 +129,8 @@ Catalogue des modèles proposés (pour UI / dropdown) :
 
 Défauts recommandés pour les **tests** (éviter la facturation) :
 - Provider : `GEMINI`
-- Modèle : `gemini-2.0-flash` (free tier Google AI Studio)
-- Fallbacks properties : `gpt-4o-mini`, `claude-haiku-4-5`, `gemini-2.0-flash`
+- Modèle : `gemini-3.5-flash` (free tier Google AI Studio)
+- Fallbacks properties : `gpt-4o-mini`, `claude-haiku-4-5`, `gemini-3.5-flash`
 
 **Chiffrement** : AES-256-GCM (`EncryptionService`), clé `ENCRYPTION_KEY` (Base64, 32 octets).  
 Sans clé en dev : génération éphémère + warning (les données chiffrées ne survivent pas au redémarrage).
@@ -166,7 +166,7 @@ Comportement :
 |----------|------|-------------|
 | OpenAI | Implémenté | `gpt-4o-mini` (économique, pas free) |
 | Anthropic | Implémenté | `claude-haiku-4-5` (économique) |
-| Gemini | Implémenté (API Google AI Studio) | `gemini-2.0-flash` (**free tier**) |
+| Gemini | Implémenté (API Google AI Studio) | `gemini-3.5-flash` (**free tier**) |
 
 Clé manquante pour le provider → HTTP **422** avec message du type  
 `No API key configured for provider …, please configure it in /api/settings`.

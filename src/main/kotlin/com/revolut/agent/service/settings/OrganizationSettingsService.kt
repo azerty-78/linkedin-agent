@@ -163,14 +163,19 @@ class OrganizationSettingsService(
 	private fun resolveModel(existing: String?, incoming: String?, provider: LlmProvider): String {
 		val candidate = incoming?.trim()?.takeIf { it.isNotEmpty() }
 			?: existing?.trim()?.takeIf { it.isNotEmpty() }
-		return candidate ?: fallbackModel(provider)
+		val resolved = candidate ?: fallbackModel(provider)
+		return if (provider == LlmProvider.GEMINI) {
+			LlmModelCatalog.resolveGeminiModel(resolved)
+		} else {
+			resolved
+		}
 	}
 
 	private fun fallbackModel(provider: LlmProvider): String =
 		when (provider) {
 			LlmProvider.OPENAI -> aiModelProperties.openai.model
 			LlmProvider.ANTHROPIC -> aiModelProperties.anthropic.model
-			LlmProvider.GEMINI -> aiModelProperties.gemini.model
+			LlmProvider.GEMINI -> LlmModelCatalog.resolveGeminiModel(aiModelProperties.gemini.model)
 		}
 
 	private fun toResponse(settings: OrganizationSettings): OrganizationSettingsResponse =
@@ -182,7 +187,9 @@ class OrganizationSettingsService(
 			activeLlmProvider = settings.activeLlmProvider,
 			openAiModel = settings.openAiModel?.takeIf { it.isNotBlank() } ?: fallbackModel(LlmProvider.OPENAI),
 			anthropicModel = settings.anthropicModel?.takeIf { it.isNotBlank() } ?: fallbackModel(LlmProvider.ANTHROPIC),
-			geminiModel = settings.geminiModel?.takeIf { it.isNotBlank() } ?: fallbackModel(LlmProvider.GEMINI),
+			geminiModel = LlmModelCatalog.resolveGeminiModel(
+				settings.geminiModel?.takeIf { it.isNotBlank() } ?: fallbackModel(LlmProvider.GEMINI),
+			),
 			openAiKeyMasked = maskEncrypted(settings.encryptedOpenAiKey),
 			anthropicKeyMasked = maskEncrypted(settings.encryptedAnthropicKey),
 			geminiKeyMasked = maskEncrypted(settings.encryptedGeminiKey),

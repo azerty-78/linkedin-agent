@@ -48,7 +48,7 @@ class AiGenerationService(
 								AiGenerationException(
 									"OpenAI/Anthropic quota exceeded (no free API). " +
 										"Add a Gemini API key and set activeLlmProvider=GEMINI " +
-										"(model gemini-2.0-flash is free-tier) for tests.",
+										"(model gemini-3.5-flash is free-tier) for tests.",
 									error,
 								),
 							)
@@ -129,10 +129,10 @@ class AiGenerationService(
 				if (configured.lowercase().contains("haiku")) configured
 				else aiModelProperties.anthropic.model
 			}
-			LlmProvider.GEMINI -> {
+			LlmProvider.GEMINI -> LlmModelCatalog.resolveGeminiModel(
 				if (configured.lowercase().contains("flash")) configured
-				else aiModelProperties.gemini.model
-			}
+				else aiModelProperties.gemini.model,
+			)
 		}
 	}
 
@@ -177,7 +177,7 @@ class AiGenerationService(
 
 			isQuotaOrRateLimit(error) ->
 				"API quota exceeded for $provider (model=$model). " +
-					"OpenAI/Anthropic require billing credit. For free tests use GEMINI + gemini-2.0-flash."
+					"OpenAI/Anthropic require billing credit. For free tests use GEMINI + gemini-3.5-flash."
 
 			error.message?.contains("timeout", ignoreCase = true) == true ||
 				root.message?.contains("timeout", ignoreCase = true) == true ->

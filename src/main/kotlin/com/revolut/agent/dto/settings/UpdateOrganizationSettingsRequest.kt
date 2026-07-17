@@ -25,7 +25,7 @@ data class UpdateOrganizationSettingsRequest(
 	val openAiModel: String? = null,
 	/** Modèle Anthropic (ex. claude-haiku-4-5). Null = conserver. */
 	val anthropicModel: String? = null,
-	/** Modèle Gemini (ex. gemini-2.0-flash). Null = conserver. */
+	/** Modèle Gemini (ex. gemini-3.5-flash). Null = conserver. */
 	val geminiModel: String? = null,
 
 	val openAiApiKey: String? = null,

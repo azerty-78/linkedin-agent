@@ -164,6 +164,13 @@ class OrganizationSettingsService(
 	fun getActiveLinkedInAccountId(): Mono<String> =
 		findOrCreateSettings().map { it.activeLinkedInAccountId.orEmpty() }
 
+	/** Présence Client ID + secret chiffré (sans déchiffrer). */
+	fun hasLinkedInAppCredentials(): Mono<Boolean> =
+		findOrCreateSettings().map { settings ->
+			!settings.linkedInClientId.isNullOrBlank() &&
+				!settings.encryptedLinkedInClientSecret.isNullOrBlank()
+		}
+
 	fun setActiveLinkedInAccountId(accountId: String?): Mono<OrganizationSettings> =
 		validateActiveLinkedInAccountId(accountId)
 			.then(findOrCreateSettings())

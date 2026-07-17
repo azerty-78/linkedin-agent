@@ -19,6 +19,10 @@ data class LinkedInConnection(
 	val accessTokenExpiresAt: Instant? = null,
 	val linkedInUserUrn: String? = null,
 	val linkedInOrganizationUrn: String? = null,
+	/** Métadonnées Page (best-effort via API Organizations). */
+	val organizationName: String? = null,
+	val organizationLogoUrl: String? = null,
+	val organizationVanityName: String? = null,
 	val connectedAt: Instant? = null,
 	val lastError: String? = null,
 	val createdAt: Instant = Instant.now(),

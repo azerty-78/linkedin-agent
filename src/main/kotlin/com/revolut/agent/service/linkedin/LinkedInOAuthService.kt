@@ -3,7 +3,9 @@ package com.revolut.agent.service.linkedin
 import com.revolut.agent.config.LinkedInProperties
 import com.revolut.agent.dto.linkedin.LinkedInAccountListResponse
 import com.revolut.agent.dto.linkedin.LinkedInAuthUrlResponse
+import com.revolut.agent.dto.linkedin.LinkedInPublishBlockers
 import com.revolut.agent.dto.linkedin.LinkedInStatusResponse
+import com.revolut.agent.dto.linkedin.LinkedInSummaryResponse
 import com.revolut.agent.dto.linkedin.SetOrganizationUrnRequest
 import com.revolut.agent.dto.linkedin.UpdateLinkedInAccountRequest
 import com.revolut.agent.exception.linkedin.LinkedInAccountLimitException
@@ -14,6 +16,8 @@ import com.revolut.agent.service.settings.EncryptionService
 import com.revolut.agent.service.settings.LinkedInAppCredentials
 import com.revolut.agent.service.settings.OrganizationSettingsService
 import org.slf4j.LoggerFactory
+import org.springframework.core.ParameterizedTypeReference
+import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Service
 import org.springframework.util.LinkedMultiValueMap
@@ -135,6 +139,72 @@ class LinkedInOAuthService(
 					}
 			}
 
+	/**
+	 * Compte explicitement actif (`activeLinkedInAccountId` en settings).
+	 * Pas de fallback « premier connecté » — 404 si absent.
+	 */
+	fun getActiveAccount(): Mono<LinkedInStatusResponse> =
+		organizationSettingsService.getActiveLinkedInAccountId()
+			.flatMap { activeId ->
+				if (activeId.isBlank()) {
+					Mono.error(NoSuchElementException("No active LinkedIn account"))
+				} else {
+					linkedInConnectionRepository.findById(activeId)
+						.switchIfEmpty(Mono.error(NoSuchElementException("Active LinkedIn account not found: $activeId")))
+						.map { toStatusResponse(it, activeId) }
+				}
+			}
+
+	fun getSummary(): Mono<LinkedInSummaryResponse> =
+		organizationSettingsService.getSettings()
+			.zipWith(organizationSettingsService.getActiveLinkedInAccountId())
+			.flatMap { tuple ->
+				val settings = tuple.t1
+				val activeId = tuple.t2
+				val hasClientId = !settings.linkedInClientId.isNullOrBlank()
+				val hasClientSecret = settings.linkedInClientSecretMasked.isNotBlank()
+				val hasCreds = hasClientId && hasClientSecret
+
+				linkedInConnectionRepository.findAllByOrderByCreatedAtAsc()
+					.collectList()
+					.map { accounts ->
+						val active = accounts.firstOrNull { it.id == activeId && activeId.isNotBlank() }
+						val blockers = mutableListOf<String>()
+						if (!hasClientId) blockers += LinkedInPublishBlockers.MISSING_CLIENT_ID
+						if (!hasClientSecret) blockers += LinkedInPublishBlockers.MISSING_CLIENT_SECRET
+						when {
+							active == null -> blockers += LinkedInPublishBlockers.NO_ACTIVE_ACCOUNT
+							active.status == LinkedInConnectionStatus.EXPIRED ->
+								blockers += LinkedInPublishBlockers.EXPIRED
+							active.status == LinkedInConnectionStatus.ERROR ->
+								blockers += LinkedInPublishBlockers.ERROR_STATUS
+							active.status != LinkedInConnectionStatus.CONNECTED ->
+								blockers += LinkedInPublishBlockers.NOT_CONNECTED
+							active.linkedInOrganizationUrn.isNullOrBlank() ->
+								blockers += LinkedInPublishBlockers.MISSING_ORG_URN
+							active.accessTokenExpiresAt?.isAfter(Instant.now()) != true &&
+								active.status == LinkedInConnectionStatus.CONNECTED ->
+								blockers += LinkedInPublishBlockers.EXPIRED
+						}
+						LinkedInSummaryResponse(
+							hasAppCredentials = hasCreds,
+							accountsCount = accounts.size,
+							maxAccounts = LinkedInConnection.MAX_ACCOUNTS,
+							activeAccount = active?.let { toStatusResponse(it, activeId) },
+							canPublish = blockers.isEmpty(),
+							publishBlockers = blockers.distinct(),
+						)
+					}
+			}
+
+	fun activateAccount(accountId: String): Mono<LinkedInAccountListResponse> =
+		linkedInConnectionRepository.findById(accountId)
+			.switchIfEmpty(Mono.error(NoSuchElementException("LinkedIn account not found: $accountId")))
+			.flatMap {
+				organizationSettingsService.setActiveLinkedInAccountId(accountId)
+					.then(listAccounts())
+			}
+
 	fun getAccount(accountId: String): Mono<LinkedInStatusResponse> =
 		organizationSettingsService.getActiveLinkedInAccountId()
 			.flatMap { activeId ->
@@ -161,6 +231,9 @@ class LinkedInOAuthService(
 						connectedAt = null,
 						lastError = null,
 						isActive = false,
+						organizationName = null,
+						organizationLogoUrl = null,
+						organizationVanityName = null,
 					),
 				),
 			)
@@ -169,13 +242,21 @@ class LinkedInOAuthService(
 		linkedInConnectionRepository.findById(accountId)
 			.switchIfEmpty(Mono.error(NoSuchElementException("LinkedIn account not found: $accountId")))
 			.flatMap { existing ->
-				linkedInConnectionRepository.save(
-					existing.copy(
-						linkedInOrganizationUrn = request.organizationUrn.trim(),
-						lastError = null,
-						updatedAt = Instant.now(),
-					),
-				)
+				val orgUrn = request.organizationUrn.trim()
+				enrichOrganizationMetadata(existing, orgUrn)
+					.defaultIfEmpty(OrganizationMetadata(null, null, null))
+					.flatMap { meta ->
+						linkedInConnectionRepository.save(
+							existing.copy(
+								linkedInOrganizationUrn = orgUrn,
+								organizationName = meta.name ?: existing.organizationName,
+								organizationLogoUrl = meta.logoUrl ?: existing.organizationLogoUrl,
+								organizationVanityName = meta.vanityName ?: existing.organizationVanityName,
+								lastError = null,
+								updatedAt = Instant.now(),
+							),
+						)
+					}
 			}
 			.flatMap { saved ->
 				organizationSettingsService.getActiveLinkedInAccountId()
@@ -374,7 +455,70 @@ class LinkedInOAuthService(
 			connectedAt = connection.connectedAt,
 			lastError = connection.lastError,
 			isActive = connection.id != null && activeId.isNotBlank() && connection.id == activeId,
+			organizationName = connection.organizationName,
+			organizationLogoUrl = connection.organizationLogoUrl,
+			organizationVanityName = connection.organizationVanityName,
 		)
+
+	/**
+	 * Best-effort : GET Organizations API.
+	 * Scopes typiques : `r_organization_social` / Community Management.
+	 * Échec → Mono.empty (front garde label + pageId).
+	 */
+	private fun enrichOrganizationMetadata(
+		connection: LinkedInConnection,
+		organizationUrn: String,
+	): Mono<OrganizationMetadata> {
+		val orgId = organizationUrn.removePrefix("urn:li:organization:").trim()
+		if (orgId.isBlank() || connection.encryptedAccessToken.isNullOrBlank()) {
+			return Mono.empty()
+		}
+		val accessToken = encryptionService.tryDecrypt(connection.encryptedAccessToken)
+			?: return Mono.empty()
+
+		val url = linkedInProperties.restApiBaseUrl.trimEnd('/') +
+			"/organizations/$orgId"
+
+		return webClient.get()
+			.uri(url)
+			.header(HttpHeaders.AUTHORIZATION, "Bearer $accessToken")
+			.header("Linkedin-Version", linkedInProperties.apiVersion)
+			.header("X-Restli-Protocol-Version", "2.0.0")
+			.retrieve()
+			.bodyToMono(object : ParameterizedTypeReference<Map<String, Any?>>() {})
+			.map { body -> parseOrganizationMetadata(body) }
+			.onErrorResume { ex ->
+				log.info(
+					"LinkedIn org metadata unavailable (scopes?) | orgId={} | cause={}",
+					orgId,
+					ex.message?.take(120),
+				)
+				Mono.empty()
+			}
+	}
+
+	@Suppress("UNCHECKED_CAST")
+	private fun parseOrganizationMetadata(body: Map<String, Any?>): OrganizationMetadata {
+		val name = (body["localizedName"] as? String)
+			?: (body["name"] as? Map<*, *>)?.get("localized")?.let { localized ->
+				(localized as? Map<*, *>)?.values?.firstOrNull() as? String
+			}
+		val vanity = body["vanityName"] as? String
+		val logoUrl = extractLogoUrl(body["logoV2"] as? Map<*, *>)
+			?: extractLogoUrl(body["logo"] as? Map<*, *>)
+		return OrganizationMetadata(name = name, logoUrl = logoUrl, vanityName = vanity)
+	}
+
+	@Suppress("UNCHECKED_CAST")
+	private fun extractLogoUrl(logo: Map<*, *>?): String? {
+		if (logo == null) return null
+		val original = logo["original"] as? String
+		if (!original.isNullOrBlank()) return original
+		val cropped = logo["cropped"] as? String
+		if (!cropped.isNullOrBlank()) return cropped
+		val digests = logo["logo"] as? Map<*, *>
+		return digests?.values?.firstOrNull() as? String
+	}
 
 	private fun resolvePersonUrn(userInfo: LinkedInUserInfoResponse): String? {
 		val sub = userInfo.sub?.trim()?.takeIf { it.isNotEmpty() } ?: return null
@@ -414,6 +558,12 @@ private data class PendingOAuth(
 	val issuedAt: Instant,
 	val accountId: String?,
 	val label: String,
+)
+
+private data class OrganizationMetadata(
+	val name: String?,
+	val logoUrl: String?,
+	val vanityName: String?,
 )
 
 class LinkedInOAuthException(message: String) : RuntimeException(message)

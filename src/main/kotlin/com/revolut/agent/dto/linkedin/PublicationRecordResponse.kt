@@ -14,4 +14,8 @@ data class PublicationRecordResponse(
 	val errorMessage: String?,
 	val createdAt: Instant,
 	val publishedAt: Instant?,
+	val accountId: String? = null,
+	val accountLabel: String? = null,
+	/** URL publique du post si dérivable (ex. feed/update/{urn}). */
+	val linkedInPostUrl: String? = null,
 )

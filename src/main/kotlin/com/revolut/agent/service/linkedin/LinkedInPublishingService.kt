@@ -49,6 +49,8 @@ class LinkedInPublishingService(
 					aiProvider = aiProvider,
 					targetUrn = targetUrn,
 					status = PublicationStatus.PENDING,
+					accountId = connection.id,
+					accountLabel = connection.label,
 					createdAt = Instant.now(),
 				)
 

@@ -15,6 +15,8 @@ data class PublicationRecord(
 	val linkedInPostId: String? = null,
 	val status: PublicationStatus = PublicationStatus.PENDING,
 	val errorMessage: String? = null,
+	val accountId: String? = null,
+	val accountLabel: String? = null,
 	val createdAt: Instant = Instant.now(),
 	val publishedAt: Instant? = null,
 )

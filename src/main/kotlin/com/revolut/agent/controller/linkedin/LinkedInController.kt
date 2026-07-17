@@ -3,6 +3,7 @@ package com.revolut.agent.controller.linkedin
 import com.revolut.agent.dto.linkedin.LinkedInAccountListResponse
 import com.revolut.agent.dto.linkedin.LinkedInAuthUrlResponse
 import com.revolut.agent.dto.linkedin.LinkedInStatusResponse
+import com.revolut.agent.dto.linkedin.LinkedInSummaryResponse
 import com.revolut.agent.dto.linkedin.SetOrganizationUrnRequest
 import com.revolut.agent.dto.linkedin.UpdateLinkedInAccountRequest
 import com.revolut.agent.service.linkedin.LinkedInOAuthService
@@ -33,6 +34,22 @@ class LinkedInController(
 		linkedInOAuthService.listAccounts()
 
 	/**
+	 * Compte actif uniquement (settings.activeLinkedInAccountId).
+	 * Déclaré avant `/{id}` pour éviter que « active » soit pris comme id.
+	 */
+	@GetMapping("/accounts/active")
+	fun getActiveAccount(): Mono<LinkedInStatusResponse> =
+		linkedInOAuthService.getActiveAccount()
+			.onErrorMap(NoSuchElementException::class.java) {
+				ResponseStatusException(HttpStatus.NOT_FOUND, it.message)
+			}
+
+	/** Résumé compact dashboards / page Test. */
+	@GetMapping("/summary")
+	fun summary(): Mono<LinkedInSummaryResponse> =
+		linkedInOAuthService.getSummary()
+
+	/**
 	 * Démarre OAuth pour ajouter un nouveau compte.
 	 * Query optionnelle : `label` (libellé UI).
 	 */
@@ -53,6 +70,14 @@ class LinkedInController(
 	@GetMapping("/accounts/{id}/auth-url")
 	fun reconnectAccount(@PathVariable id: String): Mono<LinkedInAuthUrlResponse> =
 		linkedInOAuthService.buildAuthorizationUrlForAccount(id)
+			.onErrorMap(NoSuchElementException::class.java) {
+				ResponseStatusException(HttpStatus.NOT_FOUND, it.message)
+			}
+
+	/** Switch compte actif sans PUT settings complet. */
+	@PutMapping("/accounts/{id}/activate")
+	fun activateAccount(@PathVariable id: String): Mono<LinkedInAccountListResponse> =
+		linkedInOAuthService.activateAccount(id)
 			.onErrorMap(NoSuchElementException::class.java) {
 				ResponseStatusException(HttpStatus.NOT_FOUND, it.message)
 			}

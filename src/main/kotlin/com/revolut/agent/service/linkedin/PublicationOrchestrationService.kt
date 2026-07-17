@@ -8,6 +8,8 @@ import com.revolut.agent.service.settings.OrganizationSettingsService
 import org.springframework.stereotype.Service
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 
 /**
  * Orchestration légère génération IA → publication LinkedIn.
@@ -63,5 +65,22 @@ class PublicationOrchestrationService(
 			errorMessage = record.errorMessage,
 			createdAt = record.createdAt,
 			publishedAt = record.publishedAt,
+			accountId = record.accountId,
+			accountLabel = record.accountLabel,
+			linkedInPostUrl = buildPublicPostUrl(record.linkedInPostId),
 		)
+
+	/**
+	 * URL feed LinkedIn si l'id est un URN share/ugcPost/activity.
+	 * Sinon null (front peut afficher l'id brut).
+	 */
+	private fun buildPublicPostUrl(postId: String?): String? {
+		val id = postId?.trim()?.takeIf { it.isNotEmpty() && it != "unknown" } ?: return null
+		return if (id.startsWith("urn:li:")) {
+			val encoded = URLEncoder.encode(id, StandardCharsets.UTF_8)
+			"https://www.linkedin.com/feed/update/$encoded"
+		} else {
+			null
+		}
+	}
 }

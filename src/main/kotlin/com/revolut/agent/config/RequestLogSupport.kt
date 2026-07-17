@@ -120,30 +120,19 @@ internal object RequestLogSupport {
 				return anonymousPrincipal()
 			}
 
-			val stored = contextView.getOrDefault(key, null) ?: return anonymousPrincipal()
-			val authentication: Authentication? = when (stored) {
-				is SecurityContext -> stored.authentication
-				is Mono<*> -> {
-					@Suppress("UNCHECKED_CAST")
-					(stored as Mono<SecurityContext>)
-						.flatMap { context -> Mono.justOrEmpty(context.authentication) }
-						.onErrorResume { Mono.empty() }
-						.blockOptional()
-						.orElse(null)
-				}
-				else -> null
-			}
-
-			if (authentication == null || !authentication.isAuthenticated) {
+			// Explicit Any? — otherwise Kotlin infers Nothing? from `null` and breaks smart-casts.
+			val stored = contextView.getOrDefault(key, null as Any?) ?: return anonymousPrincipal()
+			val auth = extractAuthentication(stored)
+			if (auth == null || !auth.isAuthenticated) {
 				return anonymousPrincipal()
 			}
 
-			val roles = authentication.authorities
+			val roles = auth.authorities
 				.joinToString(",") { authority -> (authority.authority ?: "").removePrefix("ROLE_") }
 				.ifBlank { "-" }
 
 			mapOf(
-				"principal" to (authentication.name ?: "anonymous"),
+				"principal" to (auth.name ?: "anonymous"),
 				"roles" to roles,
 				"authenticated" to "true",
 			)
@@ -151,6 +140,20 @@ internal object RequestLogSupport {
 			anonymousPrincipal()
 		}
 	}
+
+	private fun extractAuthentication(stored: Any): Authentication? =
+		when (stored) {
+			is SecurityContext -> stored.authentication
+			is Mono<*> -> {
+				@Suppress("UNCHECKED_CAST")
+				(stored as Mono<SecurityContext>)
+					.flatMap { context -> Mono.justOrEmpty(context.authentication) }
+					.onErrorResume { Mono.empty() }
+					.blockOptional()
+					.orElse(null)
+			}
+			else -> null
+		}
 
 	fun format(metadata: Map<String, String>): String =
 		metadata.entries.joinToString(separator = " | ") { (key, value) ->

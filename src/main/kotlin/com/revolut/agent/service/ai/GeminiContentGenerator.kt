@@ -2,7 +2,6 @@ package com.revolut.agent.service.ai
 
 import com.revolut.agent.config.AiModelProperties
 import com.revolut.agent.model.settings.LlmProvider
-import org.springframework.core.ParameterizedTypeReference
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.client.WebClient
@@ -25,7 +24,7 @@ class GeminiContentGenerator(
 		.build()
 
 	override suspend fun generate(apiKey: String, prompt: String, model: String): String {
-		val response = try {
+			val response = try {
 			webClient.post()
 				.uri("/models/{model}:generateContent", model)
 				.header("x-goog-api-key", apiKey)
@@ -43,7 +42,7 @@ class GeminiContentGenerator(
 					),
 				)
 				.retrieve()
-				.awaitBody(object : ParameterizedTypeReference<Map<String, Any?>>() {})
+				.awaitBody<Map<String, Any>>()
 		} catch (ex: WebClientResponseException) {
 			throw IllegalStateException(
 				"Gemini API error ${ex.statusCode.value()}: ${ex.responseBodyAsString.take(300)}",
@@ -59,7 +58,7 @@ class GeminiContentGenerator(
 	}
 
 	@Suppress("UNCHECKED_CAST")
-	private fun extractText(response: Map<String, Any?>): String {
+	private fun extractText(response: Map<String, Any>): String {
 		val candidates = response["candidates"] as? List<*> ?: return ""
 		return candidates.asSequence()
 			.mapNotNull { it as? Map<*, *> }

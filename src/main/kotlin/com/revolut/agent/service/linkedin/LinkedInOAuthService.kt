@@ -44,9 +44,11 @@ class LinkedInOAuthService(
 		val state = generateState()
 		pendingStates[state] = Instant.now()
 
-		// Scopes: openid + profile for /v2/userinfo; w_member_social for member posts later.
-		// w_organization_social — add when Community Management API is approved for Page posting.
-		val scope = listOf("openid", "profile", "w_member_social").joinToString(" ")
+		// Scopes MUST match those enabled on the LinkedIn Developer app (Auth → OAuth 2.0 scopes).
+		// Currently available with "Sign In with LinkedIn using OpenID Connect": openid, profile, email.
+		// Add "w_member_social" only after enabling product "Share on LinkedIn".
+		// Add "w_organization_social" later when Community Management API is approved.
+		val scope = listOf("openid", "profile", "email").joinToString(" ")
 
 		val authorizationUrl = UriComponentsBuilder
 			.fromUriString(AUTHORIZATION_URL)

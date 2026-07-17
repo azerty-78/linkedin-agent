@@ -40,11 +40,13 @@ class AiGenerationService(
 						AiGenerationException("No AI content generator registered for provider $provider"),
 					)
 
+				val model = organizationSettingsService.resolveActiveModel(settings)
 				val prompt = promptBuilderService.buildDailyTipPrompt(settings.contentTopic)
 				val generationStartedAt = System.currentTimeMillis()
 				log.info(
-					"AI generation started | provider={} | topicLength={} | timezone={} | publishHourUtc={}",
+					"AI generation started | provider={} | model={} | topicLength={} | timezone={} | publishHourUtc={}",
 					provider,
+					model,
 					settings.contentTopic.length,
 					settings.timezone,
 					settings.publishHourUtc,
@@ -53,22 +55,24 @@ class AiGenerationService(
 				organizationSettingsService.getDecryptedKeyFor(provider)
 					.flatMap { apiKey ->
 						mono {
-							generator.generate(apiKey, prompt)
+							generator.generate(apiKey, prompt, model)
 						}.map { content ->
 							val durationMs = System.currentTimeMillis() - generationStartedAt
 							log.info(
-								"AI generation succeeded | provider={} | contentLength={} | durationMs={}",
+								"AI generation succeeded | provider={} | model={} | contentLength={} | durationMs={}",
 								provider,
+								model,
 								content.length,
 								durationMs,
 							)
 							GeneratedContentResponse(
 								content = content,
 								provider = provider,
+								model = model,
 								generatedAt = Instant.now(),
 								promptUsed = prompt,
 							)
-						}.onErrorMap { error -> toAiGenerationException(provider, error) }
+						}.onErrorMap { error -> toAiGenerationException(provider, model, error) }
 					}
 			}
 
@@ -82,7 +86,7 @@ class AiGenerationService(
 			LlmProvider.GEMINI -> settings.geminiKeyMasked.isNotBlank()
 		}
 
-	private fun toAiGenerationException(provider: LlmProvider, error: Throwable): Throwable {
+	private fun toAiGenerationException(provider: LlmProvider, model: String, error: Throwable): Throwable {
 		if (error is AiGenerationException) {
 			return error
 		}
@@ -103,19 +107,20 @@ class AiGenerationService(
 			error.message?.contains("429", ignoreCase = true) == true ||
 				error.message?.contains("quota", ignoreCase = true) == true ||
 				error.message?.contains("rate", ignoreCase = true) == true ->
-				"API quota or rate limit exceeded for provider $provider. Try again later."
+				"API quota or rate limit exceeded for provider $provider (model=$model). Prefer a free-tier model (Gemini Flash) for tests."
 
 			error.message?.contains("timeout", ignoreCase = true) == true ||
 				root.message?.contains("timeout", ignoreCase = true) == true ->
-				"Timed out while calling provider $provider. Try again later."
+				"Timed out while calling provider $provider (model=$model). Try again later."
 
 			else ->
-				"Failed to generate content with provider $provider: ${error.message ?: "unknown error"}"
+				"Failed to generate content with provider $provider (model=$model): ${error.message ?: "unknown error"}"
 		}
 
 		log.warn(
-			"AI generation failed | provider={} | errorType={} | errorMessage={}",
+			"AI generation failed | provider={} | model={} | errorType={} | errorMessage={}",
 			provider,
+			model,
 			error.javaClass.simpleName,
 			truncate(error.message ?: root.message),
 		)

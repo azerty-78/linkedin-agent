@@ -117,8 +117,20 @@ Champs métier typiques :
 - Identité : `companyName`, `contentTopic`
 - Planning : `publishHourUtc`, `timezone`, `schedulerEnabled`
 - LLM : `activeLlmProvider` (`OPENAI` | `ANTHROPIC` | `GEMINI`)
+- Modèles par provider (style n8n) : `openAiModel`, `anthropicModel`, `geminiModel`
 - Clés API chiffrées en base ; jamais renvoyées en clair
 - LinkedIn org id (préparation intégration)
+
+Catalogue des modèles proposés (pour UI / dropdown) :
+
+| Méthode | Chemin | Auth | Description |
+|---------|--------|------|-------------|
+| `GET` | `/api/settings/llm-models` | Oui | Liste des modèles + flags `freeTier` / `recommendedForTests` |
+
+Défauts recommandés pour les **tests** (éviter la facturation) :
+- Provider : `GEMINI`
+- Modèle : `gemini-2.0-flash` (free tier Google AI Studio)
+- Fallbacks properties : `gpt-4o-mini`, `claude-haiku-4-5`, `gemini-2.0-flash`
 
 **Chiffrement** : AES-256-GCM (`EncryptionService`), clé `ENCRYPTION_KEY` (Base64, 32 octets).  
 Sans clé en dev : génération éphémère + warning (les données chiffrées ne survivent pas au redémarrage).
@@ -144,17 +156,17 @@ Chaque abonné a un `unsubscribeToken` UUID unique.
 
 Comportement :
 
-1. Lit les settings (provider actif + topic)
+1. Lit les settings (provider actif + modèle choisi + topic)
 2. Déchiffre la clé du provider
 3. Construit le prompt (`PromptBuilderService`)
-4. Délègue au générateur Strategy (`OpenAiContentGenerator`, `AnthropicContentGenerator`, …)
-5. Retourne contenu + provider + `generatedAt` + prompt utilisé
+4. Délègue au générateur Strategy avec le modèle sélectionné
+5. Retourne contenu + provider + `model` + `generatedAt` + prompt utilisé
 
-| Provider | État |
-|----------|------|
-| OpenAI | Implémenté (`ai.openai.model`, défaut `gpt-4o-mini`) |
-| Anthropic | Implémenté (`ai.anthropic.model`, défaut `claude-sonnet-4-6`) |
-| Gemini | Stub → erreur non supporté |
+| Provider | État | Défaut test |
+|----------|------|-------------|
+| OpenAI | Implémenté | `gpt-4o-mini` (économique, pas free) |
+| Anthropic | Implémenté | `claude-haiku-4-5` (économique) |
+| Gemini | Implémenté (API Google AI Studio) | `gemini-2.0-flash` (**free tier**) |
 
 Clé manquante pour le provider → HTTP **422** avec message du type  
 `No API key configured for provider …, please configure it in /api/settings`.
@@ -187,6 +199,7 @@ Les clés runtime viennent de Mongo (chiffrées), **pas** des placeholders `spri
 | `POST` | `/api/auth/login` | Non | 200 |
 | `GET` | `/api/auth/me` | Oui | 200 |
 | `GET` | `/api/settings` | Oui | 200 |
+| `GET` | `/api/settings/llm-models` | Oui | 200 |
 | `PUT` | `/api/settings` | Oui | 200 |
 | `POST` | `/api/subscribers` | Oui | 201 |
 | `GET` | `/api/subscribers` | Oui | 200 |

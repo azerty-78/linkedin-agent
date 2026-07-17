@@ -1,4 +1,6 @@
 package com.revolut.agent.controller.settings
+
+import com.revolut.agent.dto.settings.LlmModelsCatalogResponse
 import com.revolut.agent.dto.settings.OrganizationSettingsResponse
 import com.revolut.agent.dto.settings.UpdateOrganizationSettingsRequest
 import com.revolut.agent.service.settings.OrganizationSettingsService
@@ -20,6 +22,10 @@ class OrganizationSettingsController(
 	@GetMapping
 	fun getSettings(): Mono<OrganizationSettingsResponse> =
 		organizationSettingsService.getSettings()
+
+	@GetMapping("/llm-models")
+	fun listLlmModels(): LlmModelsCatalogResponse =
+		organizationSettingsService.listAvailableModels()
 
 	@PutMapping
 	fun updateSettings(

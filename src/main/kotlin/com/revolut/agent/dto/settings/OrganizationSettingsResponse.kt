@@ -1,4 +1,5 @@
 package com.revolut.agent.dto.settings
+
 import com.revolut.agent.model.settings.LlmProvider
 import java.time.Instant
 
@@ -8,6 +9,9 @@ data class OrganizationSettingsResponse(
 	val publishHourUtc: Int,
 	val timezone: String,
 	val activeLlmProvider: LlmProvider,
+	val openAiModel: String,
+	val anthropicModel: String,
+	val geminiModel: String,
 	val openAiKeyMasked: String,
 	val anthropicKeyMasked: String,
 	val geminiKeyMasked: String,

@@ -6,5 +6,5 @@ interface AiContentGenerator {
 
 	val provider: LlmProvider
 
-	suspend fun generate(apiKey: String, prompt: String): String
+	suspend fun generate(apiKey: String, prompt: String, model: String): String
 }

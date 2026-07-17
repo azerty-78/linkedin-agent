@@ -1,4 +1,5 @@
 package com.revolut.agent.dto.settings
+
 import com.revolut.agent.model.settings.LlmProvider
 import jakarta.validation.constraints.Max
 import jakarta.validation.constraints.Min
@@ -19,6 +20,13 @@ data class UpdateOrganizationSettingsRequest(
 	val timezone: String,
 
 	val activeLlmProvider: LlmProvider,
+
+	/** Modèle OpenAI (ex. gpt-4o-mini). Null = conserver la valeur existante. */
+	val openAiModel: String? = null,
+	/** Modèle Anthropic (ex. claude-haiku-4-5). Null = conserver. */
+	val anthropicModel: String? = null,
+	/** Modèle Gemini (ex. gemini-2.0-flash). Null = conserver. */
+	val geminiModel: String? = null,
 
 	val openAiApiKey: String? = null,
 	val anthropicApiKey: String? = null,

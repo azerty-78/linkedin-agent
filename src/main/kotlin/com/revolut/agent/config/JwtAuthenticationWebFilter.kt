@@ -35,6 +35,7 @@ class JwtAuthenticationWebFilter(
 			null,
 			listOf(SimpleGrantedAuthority("ROLE_ADMIN")),
 		)
+		RequestLogSupport.capturePrincipal(exchange, authentication)
 
 		return chain.filter(exchange)
 			.contextWrite(ReactiveSecurityContextHolder.withAuthentication(authentication))

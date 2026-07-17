@@ -14,6 +14,8 @@ internal object RequestLogSupport {
 
 	const val REQUEST_ID_ATTR = "requestLog.requestId"
 	const val REQUEST_START_ATTR = "requestLog.startTimeMs"
+	const val PRINCIPAL_ATTR = "requestLog.principal"
+	const val ROLES_ATTR = "requestLog.roles"
 
 	private const val REQUEST_ID_HEADER = "X-Request-Id"
 	private const val CORRELATION_ID_HEADER = "X-Correlation-Id"
@@ -40,6 +42,14 @@ internal object RequestLogSupport {
 
 	fun captureStart(exchange: ServerWebExchange) {
 		exchange.attributes[REQUEST_START_ATTR] = System.currentTimeMillis()
+	}
+
+	fun capturePrincipal(exchange: ServerWebExchange, authentication: Authentication) {
+		exchange.attributes[PRINCIPAL_ATTR] = authentication.name ?: "anonymous"
+		val roles = authentication.authorities
+			.joinToString(",") { authority -> (authority.authority ?: "").removePrefix("ROLE_") }
+			.ifBlank { "-" }
+		exchange.attributes[ROLES_ATTR] = roles
 	}
 
 	fun durationMs(exchange: ServerWebExchange): Long {
@@ -85,17 +95,32 @@ internal object RequestLogSupport {
 		)
 	}
 
-	fun resolvePrincipal(contextView: ContextView): Map<String, String> {
-		// Spring Security stores Mono<SecurityContext> under SecurityContext.class.
-		// Use the Object-key ContextView API — get(Class) looks for a value *of that type*
-		// and throws NoSuchElementException when only the Mono wrapper is present.
-		if (!contextView.hasKey(SecurityContext::class.java)) {
-			return anonymousPrincipal()
+	fun resolvePrincipal(exchange: ServerWebExchange, contextView: ContextView): Map<String, String> {
+		val principal = exchange.getAttribute<String>(PRINCIPAL_ATTR)
+		if (!principal.isNullOrBlank()) {
+			return mapOf(
+				"principal" to principal,
+				"roles" to (exchange.getAttribute<String>(ROLES_ATTR) ?: "-"),
+				"authenticated" to "true",
+			)
 		}
 
+		return resolvePrincipalFromContext(contextView)
+	}
+
+	/**
+	 * Spring Security stores `Mono<SecurityContext>` under key `SecurityContext.class`.
+	 * Never call [ContextView.get] with a Class argument — that overload looks up by value type
+	 * and throws [NoSuchElementException] when only the Mono wrapper is present.
+	 */
+	fun resolvePrincipalFromContext(contextView: ContextView): Map<String, String> {
 		return try {
-			@Suppress("UNCHECKED_CAST")
-			val stored = contextView.get(SecurityContext::class.java as Any)
+			val key: Any = SecurityContext::class.java
+			if (!contextView.hasKey(key)) {
+				return anonymousPrincipal()
+			}
+
+			val stored = contextView.getOrDefault(key, null) ?: return anonymousPrincipal()
 			val authentication: Authentication? = when (stored) {
 				is SecurityContext -> stored.authentication
 				is Mono<*> -> {
@@ -122,9 +147,7 @@ internal object RequestLogSupport {
 				"roles" to roles,
 				"authenticated" to "true",
 			)
-		} catch (_: NoSuchElementException) {
-			anonymousPrincipal()
-		} catch (_: Exception) {
+		} catch (_: Throwable) {
 			anonymousPrincipal()
 		}
 	}

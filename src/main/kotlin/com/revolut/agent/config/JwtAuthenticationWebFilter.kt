@@ -1,6 +1,7 @@
 package com.revolut.agent.config
 
 import com.revolut.agent.service.auth.JwtService
+import com.revolut.agent.service.auth.UserSessionService
 import org.springframework.http.HttpHeaders
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
 import org.springframework.security.core.authority.SimpleGrantedAuthority
@@ -14,6 +15,7 @@ import reactor.core.publisher.Mono
 @Component
 class JwtAuthenticationWebFilter(
 	private val jwtService: JwtService,
+	private val userSessionService: UserSessionService,
 ) : WebFilter {
 
 	override fun filter(exchange: ServerWebExchange, chain: WebFilterChain): Mono<Void> {
@@ -29,16 +31,28 @@ class JwtAuthenticationWebFilter(
 			return chain.filter(exchange)
 		}
 
-		val email = jwtService.extractEmail(token)
-		val authentication = UsernamePasswordAuthenticationToken(
-			email,
-			null,
-			listOf(SimpleGrantedAuthority("ROLE_ADMIN")),
-		)
-		RequestLogSupport.capturePrincipal(exchange, authentication)
+		val jti = jwtService.extractJti(token)
+		if (jti.isNullOrBlank()) {
+			// Anciens tokens sans jti / session → rejetés
+			return chain.filter(exchange)
+		}
 
-		return chain.filter(exchange)
-			.contextWrite(ReactiveSecurityContextHolder.withAuthentication(authentication))
+		return userSessionService.isSessionActive(jti)
+			.flatMap { active ->
+				if (!active) {
+					chain.filter(exchange)
+				} else {
+					val email = jwtService.extractEmail(token)
+					val authentication = UsernamePasswordAuthenticationToken(
+						email,
+						null,
+						listOf(SimpleGrantedAuthority("ROLE_ADMIN")),
+					)
+					RequestLogSupport.capturePrincipal(exchange, authentication)
+					chain.filter(exchange)
+						.contextWrite(ReactiveSecurityContextHolder.withAuthentication(authentication))
+				}
+			}
 	}
 
 	companion object {

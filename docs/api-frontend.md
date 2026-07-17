@@ -26,7 +26,7 @@ Documentation destinée au frontend pour brancher / mettre à jour les appels HT
 
 1. `POST /api/auth/login` → récupérer `accessToken`
 2. Envoyer `Authorization: Bearer <accessToken>` sur chaque requête protégée
-3. Si `401` → rediriger vers login (token absent / invalide / expiré)
+3. Si `401` → rediriger vers login (token absent / invalide / expiré / session révoquée — ex. 4ᵉ connexion sur le même compte)
 
 ### Format d’erreur standard
 
@@ -115,6 +115,8 @@ Si OpenAI/Anthropic renvoient un quota `429` et qu’une clé Gemini est configu
 
 **Erreurs** : `401` — identifiants invalides
 
+**Sessions concurrentes** : max **3** connexions simultanées par compte. Un 4ᵉ login réussit mais **révoque la session la plus ancienne** (son JWT renvoie `401` ensuite).
+
 ---
 
 ### 2.2 Me (profil courant)
@@ -140,6 +142,19 @@ Si OpenAI/Anthropic renvoient un quota `429` et qu’une clé Gemini est configu
   "role": "ADMIN"
 }
 ```
+
+---
+
+### 2.3 Logout
+
+| | |
+|--|--|
+| **Méthode** | `POST` |
+| **URL** | `/api/auth/logout` |
+| **Auth** | Bearer |
+| **Succès** | `204` |
+
+Révoque la session courante (le JWT ne fonctionne plus). Appeler avant de supprimer le token côté front.
 
 ---
 
@@ -725,6 +740,7 @@ Historique du plus récent au plus ancien.
 | Écran | Endpoints |
 |-------|-----------|
 | Login | `POST /api/auth/login` |
+| Logout | `POST /api/auth/logout` |
 | Guard / header user | `GET /api/auth/me` |
 | Settings org (+ LinkedIn app + compte actif) | `GET` + `PUT /api/settings` |
 | Dropdowns modèles | `GET /api/settings/llm-models` |
@@ -752,6 +768,7 @@ Historique du plus récent au plus ancien.
 | Méthode | URL | Auth | Body / params | Succès |
 |---------|-----|------|---------------|--------|
 | `POST` | `/api/auth/login` | Non | `{ email, password }` | `200` |
+| `POST` | `/api/auth/logout` | Oui | — | `204` |
 | `GET` | `/api/auth/me` | Oui | — | `200` |
 | `GET` | `/api/settings` | Oui | — | `200` |
 | `GET` | `/api/settings/llm-models` | Oui | — | `200` |

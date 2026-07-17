@@ -1,4 +1,5 @@
 package com.revolut.agent.service.auth
+
 import com.revolut.agent.config.JwtProperties
 import com.revolut.agent.dto.auth.LoginRequest
 import com.revolut.agent.dto.auth.LoginResponse
@@ -15,6 +16,7 @@ class AuthService(
 	private val jwtService: JwtService,
 	private val jwtProperties: JwtProperties,
 	private val passwordEncoder: PasswordEncoder,
+	private val userSessionService: UserSessionService,
 ) {
 
 	fun login(request: LoginRequest): Mono<LoginResponse> =
@@ -25,17 +27,25 @@ class AuthService(
 				} else {
 					val updatedUser = user.copy(lastLoginAt = Instant.now())
 					appUserRepository.save(updatedUser)
-						.map { savedUser ->
-							LoginResponse(
-								accessToken = jwtService.generateAccessToken(savedUser),
-								refreshToken = jwtService.generateRefreshToken(savedUser),
-								expiresIn = jwtProperties.expiration / 1000,
-								email = savedUser.email,
-							)
+						.flatMap { savedUser ->
+							userSessionService.openSession(savedUser)
+								.map { jti ->
+									LoginResponse(
+										accessToken = jwtService.generateAccessToken(savedUser, jti),
+										refreshToken = jwtService.generateRefreshToken(savedUser, jti),
+										expiresIn = jwtProperties.expiration / 1000,
+										email = savedUser.email,
+									)
+								}
 						}
 				}
 			}
 			.switchIfEmpty(Mono.error(BadCredentialsException(INVALID_CREDENTIALS_MESSAGE)))
+
+	fun logout(accessToken: String): Mono<Void> {
+		val jti = jwtService.extractJti(accessToken) ?: return Mono.empty()
+		return userSessionService.revokeByJti(jti)
+	}
 
 	companion object {
 		private const val INVALID_CREDENTIALS_MESSAGE = "Invalid credentials"

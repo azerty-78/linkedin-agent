@@ -1,4 +1,5 @@
 package com.revolut.agent.service.auth
+
 import com.revolut.agent.config.JwtProperties
 import com.revolut.agent.model.user.AppUser
 import io.jsonwebtoken.Claims
@@ -8,6 +9,7 @@ import org.springframework.stereotype.Service
 import java.nio.charset.StandardCharsets
 import java.util.Base64
 import java.util.Date
+import java.util.UUID
 import javax.crypto.SecretKey
 
 @Service
@@ -21,11 +23,11 @@ class JwtService(
 		)
 	}
 
-	fun generateAccessToken(user: AppUser): String =
-		buildToken(user, TOKEN_TYPE_ACCESS, jwtProperties.expiration)
+	fun generateAccessToken(user: AppUser, jti: String = UUID.randomUUID().toString()): String =
+		buildToken(user, TOKEN_TYPE_ACCESS, jwtProperties.expiration, jti)
 
-	fun generateRefreshToken(user: AppUser): String =
-		buildToken(user, TOKEN_TYPE_REFRESH, REFRESH_TOKEN_EXPIRATION_MS)
+	fun generateRefreshToken(user: AppUser, jti: String = UUID.randomUUID().toString()): String =
+		buildToken(user, TOKEN_TYPE_REFRESH, REFRESH_TOKEN_EXPIRATION_MS, jti)
 
 	fun validateToken(token: String): Boolean =
 		try {
@@ -38,14 +40,22 @@ class JwtService(
 	fun extractEmail(token: String): String =
 		extractAllClaims(token).subject
 
+	fun extractJti(token: String): String? =
+		try {
+			extractAllClaims(token).id?.takeIf { it.isNotBlank() }
+		} catch (_: Exception) {
+			null
+		}
+
 	fun extractExpiration(token: String): Date =
 		extractAllClaims(token).expiration
 
-	private fun buildToken(user: AppUser, type: String, expirationMs: Long): String {
+	private fun buildToken(user: AppUser, type: String, expirationMs: Long, jti: String): String {
 		val now = Date()
 		val expiry = Date(now.time + expirationMs)
 
 		return Jwts.builder()
+			.id(jti)
 			.subject(user.email)
 			.claim(CLAIM_ROLE, user.role.name)
 			.claim(CLAIM_TYPE, type)

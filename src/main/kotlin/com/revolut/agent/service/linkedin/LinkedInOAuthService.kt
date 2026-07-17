@@ -219,7 +219,7 @@ class LinkedInOAuthService(
 				},
 			)
 
-	private fun <T> markErrorAndFail(message: String): Mono<T> =
+	private fun <T : Any> markErrorAndFail(message: String): Mono<T> =
 		findOrCreateConnection()
 			.flatMap { existing ->
 				linkedInConnectionRepository.save(

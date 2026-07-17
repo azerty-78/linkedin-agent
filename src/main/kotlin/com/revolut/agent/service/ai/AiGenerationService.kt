@@ -175,7 +175,9 @@ class AiGenerationService(
 		when (provider) {
 			LlmProvider.OPENAI -> aiModelProperties.test.openaiModel
 			LlmProvider.ANTHROPIC -> aiModelProperties.test.anthropicModel
-			LlmProvider.GEMINI -> LlmModelCatalog.resolveGeminiModel(aiModelProperties.test.geminiModel)
+			LlmProvider.GEMINI -> LlmModelCatalog.resolveGeminiModel(
+				aiModelProperties.test.geminiModel.ifBlank { LlmModelCatalog.defaultTestModel(LlmProvider.GEMINI) },
+			)
 		}
 
 	private fun resolveTestProvider(settings: OrganizationSettingsResponse): LlmProvider {

@@ -258,8 +258,8 @@ Si OpenAI/Anthropic renvoient un quota `429` et qu’une clé Gemini est configu
 }
 ```
 
-**Conseil tests** : préférer `GEMINI` + `gemini-3.5-flash` (free tier).  
-`gemini-3.5-flash` est **arrêté** depuis juin 2026 — le backend le remappe automatiquement vers `gemini-3.5-flash`.
+**Conseil tests** : préférer `GEMINI` + clé Gemini ; le test utilise `gemini-3.1-flash-lite` (free, léger).  
+Les anciens modèles `gemini-2.x` indisponibles sont remappés automatiquement.
 
 ---
 
@@ -461,7 +461,7 @@ Le backend **n’utilise pas** les modèles premium choisis dans les settings po
 
 Comportement test :
 - Prompt ultra-court
-- Si une clé Gemini existe → priorité à `gemini-2.5-flash-lite` (free, léger)
+- Si une clé Gemini existe → priorité à `gemini-3.1-flash-lite` (free, léger)
 - Sinon provider actif + modèle de test (ex. `gpt-4.1-nano`)
 - gpt-4o / sonnet / etc. configurés en UI ne sont **pas** appelés ici
 
@@ -479,7 +479,7 @@ Comportement test :
 {
   "content": "Tip court…",
   "provider": "GEMINI",
-  "model": "gemini-2.5-flash-lite",
+  "model": "gemini-3.1-flash-lite",
   "generatedAt": "2026-07-17T12:00:00Z",
   "promptUsed": "..."
 }
@@ -521,7 +521,7 @@ Utile pour un indicateur « API up » dans le frontend / CI.
 
 1. `GET /api/settings/llm-models` → options Gemini free
 2. `PUT /api/settings` avec `activeLlmProvider: "GEMINI"`, `geminiApiKey: "…"` (le modèle UI peut être premium ; le test n’en tient pas compte)
-3. `POST /api/ai/generate-test` → utilise `gemini-2.5-flash-lite` + ~80 tokens
+3. `POST /api/ai/generate-test` → utilise `gemini-3.1-flash-lite` + ~80 tokens
 
 ---
 

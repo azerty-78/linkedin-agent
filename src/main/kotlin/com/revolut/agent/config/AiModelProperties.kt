@@ -37,8 +37,8 @@ class AiModelProperties {
 		var maxOutputTokens: Int = 80
 		var openaiModel: String = "gpt-4.1-nano"
 		var anthropicModel: String = "claude-haiku-4-5"
-		/** Plus léger du free tier Gemini. */
-		var geminiModel: String = "gemini-2.5-flash-lite"
+		/** Plus léger free tier accessible aux nouveaux comptes. */
+		var geminiModel: String = "gemini-3.1-flash-lite"
 		/** Si une clé Gemini existe, les tests l’utilisent en priorité (gratuit). */
 		var preferGemini: Boolean = true
 	}

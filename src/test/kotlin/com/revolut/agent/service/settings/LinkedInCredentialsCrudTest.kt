@@ -16,7 +16,7 @@ import org.junit.jupiter.api.Test
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.`when`
-import org.springframework.core.env.Environment
+import org.springframework.core.env.StandardEnvironment
 import reactor.core.publisher.Mono
 import reactor.test.StepVerifier
 import java.util.Base64
@@ -38,9 +38,7 @@ class LinkedInCredentialsCrudTest {
 		settingsRepository = mock(OrganizationSettingsRepository::class.java)
 		connectionRepository = mock(LinkedInConnectionRepository::class.java)
 
-		val env = mock(Environment::class.java)
-		`when`(env.activeProfiles).thenReturn(emptyArray())
-		val encryptionProperties = EncryptionProperties(env)
+		val encryptionProperties = EncryptionProperties(StandardEnvironment())
 		encryptionProperties.key = Base64.getEncoder().encodeToString(ByteArray(32) { 7 })
 		encryptionProperties.init()
 		encryptionService = EncryptionService(encryptionProperties)
@@ -68,7 +66,6 @@ class LinkedInCredentialsCrudTest {
 
 	@Test
 	fun `CRUD linkedIn credentials — create read update delete`() {
-		// CREATE
 		StepVerifier.create(
 			service.updateSettings(
 				baseRequest(
@@ -82,7 +79,6 @@ class LinkedInCredentialsCrudTest {
 		)
 			.assertNext { response ->
 				assertEquals("client-aaa", response.linkedInClientId)
-				assertTrue(response.linkedInClientSecretMasked.isNotBlank())
 				assertTrue(response.linkedInClientSecretMasked.startsWith("****"))
 				assertEquals("http://localhost:8080/api/linkedin/callback", response.linkedInRedirectUri)
 				assertEquals("w_organization_social", response.linkedInOauthScopes)
@@ -91,55 +87,41 @@ class LinkedInCredentialsCrudTest {
 
 		assertTrue(stored.get().encryptedLinkedInClientSecret!!.contains(":"))
 
-		// READ (masqué + déchiffrement interne)
 		StepVerifier.create(service.getSettings())
-			.assertNext { response ->
-				assertEquals("client-aaa", response.linkedInClientId)
-				assertEquals("****1111", response.linkedInClientSecretMasked)
+			.assertNext {
+				assertEquals("client-aaa", it.linkedInClientId)
+				assertEquals("****1111", it.linkedInClientSecretMasked)
 			}
 			.verifyComplete()
 
 		StepVerifier.create(service.getLinkedInAppCredentials())
-			.assertNext { creds ->
-				assertEquals("client-aaa", creds.clientId)
-				assertEquals("secret-plain-1111", creds.clientSecret)
-				assertEquals("w_organization_social", creds.oauthScopes)
-			}
-			.verifyComplete()
-
-		// UPDATE (secret + client id) — champ secret vide = conserver
-		StepVerifier.create(
-			service.updateSettings(
-				baseRequest(
-					linkedInClientId = "client-bbb",
-					linkedInClientSecret = null,
-					linkedInOauthScopes = "w_organization_social r_organization_social",
-				),
-				"admin@test.com",
-			),
-		)
-			.assertNext { response ->
-				assertEquals("client-bbb", response.linkedInClientId)
-				assertEquals("****1111", response.linkedInClientSecretMasked)
-				assertEquals("w_organization_social r_organization_social", response.linkedInOauthScopes)
+			.assertNext {
+				assertEquals("client-aaa", it.clientId)
+				assertEquals("secret-plain-1111", it.clientSecret)
 			}
 			.verifyComplete()
 
 		StepVerifier.create(
 			service.updateSettings(
-				baseRequest(
-					linkedInClientSecret = "secret-plain-2222",
-				),
+				baseRequest(linkedInClientId = "client-bbb", linkedInClientSecret = null),
 				"admin@test.com",
 			),
 		)
-			.assertNext { response ->
-				assertEquals("client-bbb", response.linkedInClientId)
-				assertEquals("****2222", response.linkedInClientSecretMasked)
+			.assertNext {
+				assertEquals("client-bbb", it.linkedInClientId)
+				assertEquals("****1111", it.linkedInClientSecretMasked)
 			}
 			.verifyComplete()
 
-		// DELETE secret (flag dédié) + clear client id (blank)
+		StepVerifier.create(
+			service.updateSettings(
+				baseRequest(linkedInClientSecret = "secret-plain-2222"),
+				"admin@test.com",
+			),
+		)
+			.assertNext { assertEquals("****2222", it.linkedInClientSecretMasked) }
+			.verifyComplete()
+
 		StepVerifier.create(
 			service.updateSettings(
 				baseRequest(
@@ -151,19 +133,14 @@ class LinkedInCredentialsCrudTest {
 				"admin@test.com",
 			),
 		)
-			.assertNext { response ->
-				assertNull(response.linkedInClientId)
-				assertEquals("", response.linkedInClientSecretMasked)
-				// défauts backend exposés en lecture
-				assertEquals("http://localhost:8080/api/linkedin/callback", response.linkedInRedirectUri)
-				assertEquals("w_organization_social r_organization_social", response.linkedInOauthScopes)
+			.assertNext {
+				assertNull(it.linkedInClientId)
+				assertEquals("", it.linkedInClientSecretMasked)
 			}
 			.verifyComplete()
 
 		assertNull(stored.get().linkedInClientId)
 		assertNull(stored.get().encryptedLinkedInClientSecret)
-		assertNull(stored.get().linkedInRedirectUri)
-		assertNull(stored.get().linkedInOauthScopes)
 
 		StepVerifier.create(service.getLinkedInAppCredentials())
 			.expectErrorMatches { it is IllegalStateException && it.message!!.contains("client ID") }

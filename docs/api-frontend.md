@@ -452,40 +452,42 @@ Pas d’usage JSON côté SPA admin : lien mail → navigateur.
 | **Succès** | `200` |
 | **Body** | aucun |
 
-Le backend lit les settings courants :
-- `activeLlmProvider`
-- modèle associé (`openAiModel` / `anthropicModel` / `geminiModel`)
-- clé du provider
-- `contentTopic` pour le prompt
+Le backend **n’utilise pas** les modèles premium choisis dans les settings pour cet endpoint.
 
-Comportement côté serveur (tests) :
-- Prompt court + sortie limitée (~180 tokens)
-- OpenAI forcé vers nano/mini si un modèle coûteux est choisi
-- En cas de quota OpenAI/Anthropic (`429`), repli automatique sur **Gemini** si une clé Gemini est présente
+| Contexte | Modèles | Tokens |
+|----------|---------|--------|
+| `POST /api/ai/generate-test` | Forcés faibles (`ai.test.*`) | ~80 max |
+| Génération réelle (scheduler / futur) | Modèles choisis dans `/api/settings` | ~1024 |
+
+Comportement test :
+- Prompt ultra-court
+- Si une clé Gemini existe → priorité à `gemini-2.5-flash-lite` (free, léger)
+- Sinon provider actif + modèle de test (ex. `gpt-4.1-nano`)
+- gpt-4o / sonnet / etc. configurés en UI ne sont **pas** appelés ici
 
 **Réponse `200`**
 
 | Champ | Type | Description |
 |-------|------|-------------|
 | `content` | `string` | Tip généré |
-| `provider` | `LlmProvider` | Provider réellement utilisé (peut être Gemini après fallback) |
-| `model` | `string` | Modèle réellement utilisé |
+| `provider` | `LlmProvider` | Provider réellement utilisé |
+| `model` | `string` | Modèle de test réellement utilisé |
 | `generatedAt` | `string` (ISO-8601) | |
 | `promptUsed` | `string` | Prompt envoyé au LLM |
 
 ```json
 {
-  "content": "Voici un tip LinkedIn…",
+  "content": "Tip court…",
   "provider": "GEMINI",
-  "model": "gemini-3.5-flash",
+  "model": "gemini-2.5-flash-lite",
   "generatedAt": "2026-07-17T12:00:00Z",
   "promptUsed": "..."
 }
 ```
 
 **Erreurs**
-- `422` — pas de clé API pour le provider actif
-- `400` — quota (sans fallback Gemini), clé invalide, autre erreur LLM
+- `422` — pas de clé API pour le provider de test
+- `400` — quota / clé invalide / autre erreur LLM
 
 ---
 
@@ -518,8 +520,8 @@ Utile pour un indicateur « API up » dans le frontend / CI.
 ### Exemple flux settings + génération (tests gratuits)
 
 1. `GET /api/settings/llm-models` → options Gemini free
-2. `PUT /api/settings` avec `activeLlmProvider: "GEMINI"`, `geminiModel: "gemini-3.5-flash"`, `geminiApiKey: "…"`
-3. `POST /api/ai/generate-test`
+2. `PUT /api/settings` avec `activeLlmProvider: "GEMINI"`, `geminiApiKey: "…"` (le modèle UI peut être premium ; le test n’en tient pas compte)
+3. `POST /api/ai/generate-test` → utilise `gemini-2.5-flash-lite` + ~80 tokens
 
 ---
 

@@ -5,16 +5,31 @@ import org.springframework.stereotype.Service
 @Service
 class PromptBuilderService {
 
-	/**
-	 * Prompt volontairement court pour limiter tokens d'entrée + sortie (~tip 300–500 car.).
-	 */
+	/** Prompt production : tip LinkedIn complet. */
 	fun buildDailyTipPrompt(contentTopic: String): String {
 		val topic = contentTopic.trim().ifBlank { "astuces tech" }
 
 		return """
-			Rédige UN tip LinkedIn sur: "$topic".
-			Règles: 300-500 caractères, ton pro, français si le sujet est en français.
-			Sans hashtags, sans intro/meta ("Voici un tip…"). Texte brut uniquement.
+			You are a professional LinkedIn content writer.
+
+			Write ONE concrete, actionable tip about: "$topic".
+
+			Hard requirements:
+			- LinkedIn post style (hook + value, easy to skim)
+			- Professional yet accessible tone
+			- Length between 600 and 1000 characters
+			- No hashtags
+			- No meta commentary — return ONLY the raw post text
+			- Prefer French if the topic is written in French
+		""".trimIndent()
+	}
+
+	/** Prompt test : très court pour consommer un minimum de tokens. */
+	fun buildTestTipPrompt(contentTopic: String): String {
+		val topic = contentTopic.trim().ifBlank { "tech" }
+		return """
+			Écris un tip LinkedIn ultra-court sur "$topic" (max 250 caractères).
+			Texte brut uniquement, sans hashtags ni intro.
 		""".trimIndent()
 	}
 }

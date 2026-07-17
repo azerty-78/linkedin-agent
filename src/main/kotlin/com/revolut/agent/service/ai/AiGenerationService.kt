@@ -26,67 +26,116 @@ class AiGenerationService(
 	private val generatorsByProvider: Map<LlmProvider, AiContentGenerator> =
 		generators.associateBy { it.provider }
 
+	/**
+	 * Génération réelle : respecte le provider + modèles choisis dans `/api/settings`.
+	 */
 	fun generateDailyTip(): Mono<GeneratedContentResponse> =
 		organizationSettingsService.getSettings()
 			.flatMap { settings ->
-				val primary = settings.activeLlmProvider
-				if (!hasConfiguredKey(settings, primary)) {
+				val provider = settings.activeLlmProvider
+				if (!hasConfiguredKey(settings, provider)) {
 					return@flatMap Mono.error(
 						AiGenerationException(
-							"No API key configured for provider $primary, please configure it in /api/settings",
+							"No API key configured for provider $provider, please configure it in /api/settings",
+						),
+					)
+				}
+				generateWithProvider(
+					settings = settings,
+					provider = provider,
+					model = resolveConfiguredModel(settings, provider),
+					prompt = promptBuilderService.buildDailyTipPrompt(settings.contentTopic),
+					maxOutputTokens = productionMaxTokens(provider),
+					mode = "production",
+				)
+			}
+
+	/**
+	 * Endpoint de test uniquement : modèles faibles / free, peu de tokens.
+	 * Ignore les modèles « premium » choisis en settings.
+	 */
+	fun generateDailyTipForTest(): Mono<GeneratedContentResponse> =
+		organizationSettingsService.getSettings()
+			.flatMap { settings ->
+				val provider = resolveTestProvider(settings)
+				if (!hasConfiguredKey(settings, provider)) {
+					return@flatMap Mono.error(
+						AiGenerationException(
+							"No API key configured for test provider $provider. " +
+								"For free tests, set geminiApiKey + activeLlmProvider=GEMINI in /api/settings.",
 						),
 					)
 				}
 
-				generateWithProvider(settings, primary)
-					.onErrorResume { error ->
-						if (!isQuotaOrRateLimit(error) || primary == LlmProvider.GEMINI) {
-							return@onErrorResume Mono.error(error)
-						}
-						if (!hasConfiguredKey(settings, LlmProvider.GEMINI)) {
-							return@onErrorResume Mono.error(
-								AiGenerationException(
-									"OpenAI/Anthropic quota exceeded (no free API). " +
-										"Add a Gemini API key and set activeLlmProvider=GEMINI " +
-										"(model gemini-3.5-flash is free-tier) for tests.",
-									error,
-								),
-							)
-						}
-						log.warn(
-							"Provider {} hit quota/rate-limit — falling back to Gemini free tier for this test",
-							primary,
-						)
-						generateWithProvider(settings, LlmProvider.GEMINI)
+				generateWithProvider(
+					settings = settings,
+					provider = provider,
+					model = resolveTestModel(provider),
+					prompt = promptBuilderService.buildTestTipPrompt(settings.contentTopic),
+					maxOutputTokens = aiModelProperties.test.maxOutputTokens,
+					mode = "test",
+				).onErrorResume { error ->
+					if (!isQuotaOrRateLimit(error) || provider == LlmProvider.GEMINI) {
+						return@onErrorResume Mono.error(error)
 					}
+					if (!hasConfiguredKey(settings, LlmProvider.GEMINI)) {
+						return@onErrorResume Mono.error(
+							AiGenerationException(
+								"Paid provider quota exceeded during test. " +
+									"Add a Gemini API key for free-tier tests (model ${aiModelProperties.test.geminiModel}).",
+								error,
+							),
+						)
+					}
+					log.warn("Test generation quota on {} — falling back to weak Gemini model", provider)
+					generateWithProvider(
+						settings = settings,
+						provider = LlmProvider.GEMINI,
+						model = resolveTestModel(LlmProvider.GEMINI),
+						prompt = promptBuilderService.buildTestTipPrompt(settings.contentTopic),
+						maxOutputTokens = aiModelProperties.test.maxOutputTokens,
+						mode = "test-fallback",
+					)
+				}
 			}
 
 	private fun generateWithProvider(
 		settings: OrganizationSettingsResponse,
 		provider: LlmProvider,
+		model: String,
+		prompt: String,
+		maxOutputTokens: Int,
+		mode: String,
 	): Mono<GeneratedContentResponse> {
 		val generator = generatorsByProvider[provider]
 			?: return Mono.error(AiGenerationException("No AI content generator registered for provider $provider"))
 
-		val model = resolveEconomicalModel(settings, provider)
-		val prompt = promptBuilderService.buildDailyTipPrompt(settings.contentTopic)
 		val generationStartedAt = System.currentTimeMillis()
 		log.info(
-			"AI generation started | provider={} | model={} | maxOutputTokens={} | topicLength={}",
+			"AI generation started | mode={} | provider={} | model={} | maxOutputTokens={} | topicLength={}",
+			mode,
 			provider,
 			model,
-			aiModelProperties.maxOutputTokens,
+			maxOutputTokens,
 			settings.contentTopic.length,
 		)
 
 		return organizationSettingsService.getDecryptedKeyFor(provider)
 			.flatMap { apiKey ->
 				mono {
-					generator.generate(apiKey, prompt, model)
+					generator.generate(
+						AiGenerationCommand(
+							apiKey = apiKey,
+							prompt = prompt,
+							model = model,
+							maxOutputTokens = maxOutputTokens,
+						),
+					)
 				}.map { content ->
 					val durationMs = System.currentTimeMillis() - generationStartedAt
 					log.info(
-						"AI generation succeeded | provider={} | model={} | contentLength={} | durationMs={}",
+						"AI generation succeeded | mode={} | provider={} | model={} | contentLength={} | durationMs={}",
+						mode,
 						provider,
 						model,
 						content.length,
@@ -103,11 +152,8 @@ class AiGenerationService(
 			}
 	}
 
-	/**
-	 * OpenAI n'a pas de modèle API gratuit : on force nano/mini.
-	 * Gemini : free tier flash.
-	 */
-	private fun resolveEconomicalModel(
+	/** Choix utilisateur (settings) — aucun forçage. */
+	private fun resolveConfiguredModel(
 		settings: OrganizationSettingsResponse,
 		provider: LlmProvider,
 	): String {
@@ -117,24 +163,34 @@ class AiGenerationService(
 			LlmProvider.GEMINI -> settings.geminiModel
 		}.ifBlank { LlmModelCatalog.defaultModel(provider) }
 
-		return when (provider) {
-			LlmProvider.OPENAI -> {
-				val id = configured.lowercase()
-				when {
-					id.contains("nano") || id.contains("mini") -> configured
-					else -> aiModelProperties.openai.model
-				}
-			}
-			LlmProvider.ANTHROPIC -> {
-				if (configured.lowercase().contains("haiku")) configured
-				else aiModelProperties.anthropic.model
-			}
-			LlmProvider.GEMINI -> LlmModelCatalog.resolveGeminiModel(
-				if (configured.lowercase().contains("flash")) configured
-				else aiModelProperties.gemini.model,
-			)
+		return if (provider == LlmProvider.GEMINI) {
+			LlmModelCatalog.resolveGeminiModel(configured)
+		} else {
+			configured
 		}
 	}
+
+	/** Modèles faibles hardcodés pour /generate-test uniquement. */
+	private fun resolveTestModel(provider: LlmProvider): String =
+		when (provider) {
+			LlmProvider.OPENAI -> aiModelProperties.test.openaiModel
+			LlmProvider.ANTHROPIC -> aiModelProperties.test.anthropicModel
+			LlmProvider.GEMINI -> LlmModelCatalog.resolveGeminiModel(aiModelProperties.test.geminiModel)
+		}
+
+	private fun resolveTestProvider(settings: OrganizationSettingsResponse): LlmProvider {
+		if (aiModelProperties.test.preferGemini && hasConfiguredKey(settings, LlmProvider.GEMINI)) {
+			return LlmProvider.GEMINI
+		}
+		return settings.activeLlmProvider
+	}
+
+	private fun productionMaxTokens(provider: LlmProvider): Int =
+		when (provider) {
+			LlmProvider.OPENAI -> aiModelProperties.maxOutputTokens
+			LlmProvider.ANTHROPIC -> minOf(aiModelProperties.anthropic.maxTokens, aiModelProperties.maxOutputTokens)
+			LlmProvider.GEMINI -> minOf(aiModelProperties.gemini.maxOutputTokens, aiModelProperties.maxOutputTokens)
+		}
 
 	private fun hasConfiguredKey(
 		settings: OrganizationSettingsResponse,
@@ -177,7 +233,7 @@ class AiGenerationService(
 
 			isQuotaOrRateLimit(error) ->
 				"API quota exceeded for $provider (model=$model). " +
-					"OpenAI/Anthropic require billing credit. For free tests use GEMINI + gemini-3.5-flash."
+					"For free tests use a Gemini key (model ${aiModelProperties.test.geminiModel})."
 
 			error.message?.contains("timeout", ignoreCase = true) == true ||
 				root.message?.contains("timeout", ignoreCase = true) == true ->

@@ -25,14 +25,13 @@ class GeminiContentGenerator(
 		.baseUrl(aiModelProperties.gemini.apiBaseUrl.trimEnd('/'))
 		.build()
 
-	override suspend fun generate(apiKey: String, prompt: String, model: String): String {
-		val resolvedModel = LlmModelCatalog.resolveGeminiModel(model)
-		val maxOutput = minOf(aiModelProperties.gemini.maxOutputTokens, aiModelProperties.maxOutputTokens)
+	override suspend fun generate(command: AiGenerationCommand): String {
+		val resolvedModel = LlmModelCatalog.resolveGeminiModel(command.model)
 
 		val response = try {
 			val uri = UriComponentsBuilder
 				.fromPath("/models/{model}:generateContent")
-				.queryParam("key", apiKey)
+				.queryParam("key", command.apiKey)
 				.buildAndExpand(resolvedModel)
 				.toUri()
 
@@ -46,12 +45,12 @@ class GeminiContentGenerator(
 							mapOf(
 								"role" to "user",
 								"parts" to listOf(
-									mapOf("text" to prompt),
+									mapOf("text" to command.prompt),
 								),
 							),
 						),
 						"generationConfig" to mapOf(
-							"maxOutputTokens" to maxOutput,
+							"maxOutputTokens" to command.maxOutputTokens,
 							"temperature" to 0.7,
 						),
 					),

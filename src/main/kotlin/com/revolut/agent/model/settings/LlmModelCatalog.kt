@@ -1,10 +1,8 @@
 package com.revolut.agent.model.settings
 
 /**
- * Catalogue des modèles LLM proposés (style n8n).
- * OpenAI / Anthropic API = payant. Gemini Flash = free tier (AI Studio).
- *
- * Note (juil. 2026) : gemini-2.0-flash a été arrêté le 1er juin 2026.
+ * Catalogue UI (choix utilisateur en settings).
+ * Les tests (`/api/ai/generate-test`) n’utilisent PAS ces choix : voir `ai.test.*`.
  */
 object LlmModelCatalog {
 
@@ -17,22 +15,23 @@ object LlmModelCatalog {
 	)
 
 	val models: List<ModelOption> = listOf(
-		// OpenAI — pas de free tier API
-		ModelOption("gpt-4.1-nano", "GPT-4.1 Nano (moins cher — pas gratuit)", LlmProvider.OPENAI, freeTier = false, recommendedForTests = true),
-		ModelOption("gpt-4o-mini", "GPT-4o Mini (économique — pas gratuit)", LlmProvider.OPENAI, freeTier = false, recommendedForTests = true),
+		// OpenAI — choix libre (payant)
+		ModelOption("gpt-4.1-nano", "GPT-4.1 Nano", LlmProvider.OPENAI, freeTier = false, recommendedForTests = true),
+		ModelOption("gpt-4o-mini", "GPT-4o Mini", LlmProvider.OPENAI, freeTier = false),
 		ModelOption("gpt-4.1-mini", "GPT-4.1 Mini", LlmProvider.OPENAI, freeTier = false),
-		ModelOption("gpt-4o", "GPT-4o (coûteux)", LlmProvider.OPENAI, freeTier = false),
+		ModelOption("gpt-4o", "GPT-4o", LlmProvider.OPENAI, freeTier = false),
 
-		// Anthropic — payant
-		ModelOption("claude-haiku-4-5", "Claude Haiku 4.5 (économique — pas gratuit)", LlmProvider.ANTHROPIC, freeTier = false, recommendedForTests = true),
+		// Anthropic — choix libre (payant)
+		ModelOption("claude-haiku-4-5", "Claude Haiku 4.5", LlmProvider.ANTHROPIC, freeTier = false, recommendedForTests = true),
 		ModelOption("claude-3-5-haiku-latest", "Claude 3.5 Haiku (latest)", LlmProvider.ANTHROPIC, freeTier = false),
-		ModelOption("claude-sonnet-4-6", "Claude Sonnet 4.6 (coûteux)", LlmProvider.ANTHROPIC, freeTier = false),
+		ModelOption("claude-sonnet-4-6", "Claude Sonnet 4.6", LlmProvider.ANTHROPIC, freeTier = false),
+		ModelOption("claude-opus-4-6", "Claude Opus 4.6", LlmProvider.ANTHROPIC, freeTier = false),
 
-		// Gemini — free tier Google AI Studio (modèles actifs post-juin 2026)
-		ModelOption("gemini-3.5-flash", "Gemini 3.5 Flash (FREE tier)", LlmProvider.GEMINI, freeTier = true, recommendedForTests = true),
-		ModelOption("gemini-2.5-flash", "Gemini 2.5 Flash (FREE tier)", LlmProvider.GEMINI, freeTier = true, recommendedForTests = true),
-		ModelOption("gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite (FREE tier)", LlmProvider.GEMINI, freeTier = true, recommendedForTests = true),
-		ModelOption("gemini-3.1-flash-lite", "Gemini 3.1 Flash Lite (FREE tier)", LlmProvider.GEMINI, freeTier = true),
+		// Gemini — free tier + modèles plus capables
+		ModelOption("gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite (FREE — idéal tests)", LlmProvider.GEMINI, freeTier = true, recommendedForTests = true),
+		ModelOption("gemini-3.1-flash-lite", "Gemini 3.1 Flash Lite (FREE)", LlmProvider.GEMINI, freeTier = true, recommendedForTests = true),
+		ModelOption("gemini-2.5-flash", "Gemini 2.5 Flash (FREE)", LlmProvider.GEMINI, freeTier = true),
+		ModelOption("gemini-3.5-flash", "Gemini 3.5 Flash (FREE)", LlmProvider.GEMINI, freeTier = true),
 	)
 
 	private val shutdownGeminiModels = setOf(
@@ -46,12 +45,11 @@ object LlmModelCatalog {
 
 	fun defaultModel(provider: LlmProvider): String =
 		when (provider) {
-			LlmProvider.OPENAI -> "gpt-4.1-nano"
+			LlmProvider.OPENAI -> "gpt-4o-mini"
 			LlmProvider.ANTHROPIC -> "claude-haiku-4-5"
 			LlmProvider.GEMINI -> "gemini-3.5-flash"
 		}
 
-	/** Remappe les anciens IDs Gemini arrêtés vers le défaut free actuel. */
 	fun resolveGeminiModel(requested: String?): String {
 		val id = requested?.trim().orEmpty()
 		if (id.isBlank() || id.lowercase() in shutdownGeminiModels || id.lowercase().startsWith("gemini-2.0")) {

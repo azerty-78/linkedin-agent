@@ -1,7 +1,6 @@
 package com.revolut.agent.service.ai
 
 import com.anthropic.models.messages.Model
-import com.revolut.agent.config.AiModelProperties
 import com.revolut.agent.model.settings.LlmProvider
 import org.springframework.ai.anthropic.AnthropicChatModel
 import org.springframework.ai.anthropic.AnthropicChatOptions
@@ -9,18 +8,15 @@ import org.springframework.stereotype.Component
 import java.time.Duration
 
 @Component
-class AnthropicContentGenerator(
-	private val aiModelProperties: AiModelProperties,
-) : AiContentGenerator {
+class AnthropicContentGenerator : AiContentGenerator {
 
 	override val provider: LlmProvider = LlmProvider.ANTHROPIC
 
-	override suspend fun generate(apiKey: String, prompt: String, model: String): String {
-		val maxTokens = minOf(aiModelProperties.anthropic.maxTokens, aiModelProperties.maxOutputTokens)
+	override suspend fun generate(command: AiGenerationCommand): String {
 		val options = AnthropicChatOptions.builder()
-			.apiKey(apiKey)
-			.model(Model.of(model))
-			.maxTokens(maxTokens)
+			.apiKey(command.apiKey)
+			.model(Model.of(command.model))
+			.maxTokens(command.maxOutputTokens)
 			.timeout(Duration.ofSeconds(30))
 			.build()
 
@@ -28,6 +24,6 @@ class AnthropicContentGenerator(
 			.options(options)
 			.build()
 
-		return chatModel.call(prompt)?.trim().orEmpty()
+		return chatModel.call(command.prompt)?.trim().orEmpty()
 	}
 }

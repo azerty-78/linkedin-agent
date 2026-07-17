@@ -83,6 +83,15 @@ class LinkedInOAuthService(
 				if (accessToken.isNullOrBlank()) {
 					return@flatMap markErrorAndFail("LinkedIn token response did not include access_token")
 				}
+				val grantedScopes = tokenResponse.scope.orEmpty()
+				log.info("LinkedIn token granted scopes={}", grantedScopes)
+				if (!grantedScopes.split(Regex("[,\\s]+")).any { it.equals("w_member_social", ignoreCase = true) }) {
+					log.warn(
+						"LinkedIn token WITHOUT w_member_social — publication will fail until user re-consents. " +
+							"Granted: {}",
+						grantedScopes,
+					)
+				}
 				val expiresIn = tokenResponse.expires_in ?: DEFAULT_EXPIRES_IN_SECONDS
 				fetchUserInfo(accessToken)
 					.flatMap { userInfo ->

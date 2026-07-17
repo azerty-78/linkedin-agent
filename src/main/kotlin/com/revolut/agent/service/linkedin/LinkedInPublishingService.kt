@@ -155,25 +155,30 @@ class LinkedInPublishingService(
 	}
 
 	/**
-	 * POST /v2/ugcPosts.
-	 * L'id du post est lu depuis le header de réponse `x-restli-id` (pas le body — body souvent vide en 201).
-	 * Fallback : header `Location` si présent.
+	 * POST https://api.linkedin.com/rest/posts (Posts API — remplace l'ancien /v2/ugcPosts).
+	 * Id du post : header `x-restli-id` (body souvent vide en 201).
 	 */
 	private fun callUgcPostsApi(
 		accessToken: String,
 		authorUrn: String,
 		text: String,
 	): Mono<String> {
-		val ugcUrl = linkedInProperties.apiBaseUrl.trimEnd('/') + "/ugcPosts"
-		val body = buildUgcPostBody(authorUrn, text)
+		val postsUrl = linkedInProperties.restApiBaseUrl.trimEnd('/') + "/posts"
+		val body = buildPostsApiBody(authorUrn, text)
 
-		log.info("LinkedIn UGC publish started | authorUrn={} | contentLength={}", authorUrn, text.length)
+		log.info(
+			"LinkedIn Posts API publish started | authorUrn={} | contentLength={} | apiVersion={}",
+			authorUrn,
+			text.length,
+			linkedInProperties.apiVersion,
+		)
 
 		return webClient.post()
-			.uri(ugcUrl)
+			.uri(postsUrl)
 			.contentType(MediaType.APPLICATION_JSON)
 			.header(HttpHeaders.AUTHORIZATION, "Bearer $accessToken")
 			.header(RESTLI_PROTOCOL_HEADER, RESTLI_PROTOCOL_VERSION)
+			.header(LINKEDIN_VERSION_HEADER, linkedInProperties.apiVersion)
 			.bodyValue(body)
 			.exchangeToMono { response ->
 				val status = response.statusCode()
@@ -183,11 +188,11 @@ class LinkedInPublishingService(
 				if (status.is2xxSuccessful) {
 					response.releaseBody().then(
 						if (!postId.isNullOrBlank()) {
-							log.info("LinkedIn UGC publish succeeded | postId={}", postId)
+							log.info("LinkedIn Posts API publish succeeded | postId={}", postId)
 							Mono.just(postId)
 						} else {
 							log.warn(
-								"LinkedIn UGC 2xx but missing x-restli-id / Location | httpStatus={}",
+								"LinkedIn Posts API 2xx but missing x-restli-id / Location | httpStatus={}",
 								status.value(),
 							)
 							Mono.just("unknown")
@@ -199,19 +204,19 @@ class LinkedInPublishingService(
 			}
 	}
 
-	private fun buildUgcPostBody(authorUrn: String, text: String): Map<String, Any> =
+	/** Payload Posts API (Community Management), pas le schéma legacy ugcPosts. */
+	private fun buildPostsApiBody(authorUrn: String, text: String): Map<String, Any> =
 		mapOf(
 			"author" to authorUrn,
+			"commentary" to text,
+			"visibility" to "PUBLIC",
+			"distribution" to mapOf(
+				"feedDistribution" to "MAIN_FEED",
+				"targetEntities" to emptyList<Any>(),
+				"thirdPartyDistributionChannels" to emptyList<Any>(),
+			),
 			"lifecycleState" to "PUBLISHED",
-			"specificContent" to mapOf(
-				"com.linkedin.ugc.ShareContent" to mapOf(
-					"shareCommentary" to mapOf("text" to text),
-					"shareMediaCategory" to "NONE",
-				),
-			),
-			"visibility" to mapOf(
-				"com.linkedin.ugc.MemberNetworkVisibility" to "PUBLIC",
-			),
+			"isReshareDisabledByAuthor" to false,
 		)
 
 	private fun extractPostId(headers: HttpHeaders): String? {
@@ -231,16 +236,33 @@ class LinkedInPublishingService(
 		val http = error as? WebClientResponseException
 			?: (error.cause as? WebClientResponseException)
 		if (http != null) {
-			return when (http.statusCode.value()) {
-				401 -> "Token LinkedIn invalide ou révoqué — reconnectez-vous."
-				403 -> "Permission refusée (scope w_member_social manquant ou app non autorisée)."
+			val linkedInDetail = sanitizeLinkedInErrorBody(http.responseBodyAsString)
+			val base = when (http.statusCode.value()) {
+				401 -> "Token LinkedIn invalide ou révoqué — reconnectez-vous via /api/linkedin/auth-url."
+				403 -> "Permission refusée (403). Vérifiez : 1) produit Share on LinkedIn, " +
+					"2) déconnexion puis reconnexion OAuth pour obtenir w_member_social sur le token, " +
+					"3) API /rest/posts (plus ugcPosts)."
 				422 -> "LinkedIn a rejeté le contenu du post (format ou politique)."
 				429 -> "Quota LinkedIn dépassé (rate limit) — réessayez plus tard."
 				in 500..599 -> "Erreur serveur LinkedIn (${http.statusCode.value()}) — réessayez plus tard."
 				else -> "Publication LinkedIn échouée (HTTP ${http.statusCode.value()})."
 			}
+			return if (linkedInDetail != null) "$base Détail LinkedIn: $linkedInDetail" else base
 		}
 		return error.message?.take(200)?.ifBlank { null } ?: "Publication LinkedIn échouée"
+	}
+
+	/** Extrait un message utile du body LinkedIn sans headers/tokens. */
+	private fun sanitizeLinkedInErrorBody(raw: String?): String? {
+		if (raw.isNullOrBlank()) return null
+		val trimmed = raw.replace(Regex("\\s+"), " ").take(280)
+		// Évite de remonter quelque chose qui ressemblerait à un bearer
+		if (trimmed.contains("Bearer", ignoreCase = true) || trimmed.contains("access_token", ignoreCase = true)) {
+			return trimmed.replace(Regex("(?i)bearer\\s+\\S+"), "[redacted]")
+				.replace(Regex("(?i)\"access_token\"\\s*:\\s*\"[^\"]*\""), "\"access_token\":\"[redacted]\"")
+				.take(280)
+		}
+		return trimmed
 	}
 
 	/** Jamais de token / Authorization dans les logs. */
@@ -248,7 +270,8 @@ class LinkedInPublishingService(
 		val http = error as? WebClientResponseException
 			?: (error.cause as? WebClientResponseException)
 		return if (http != null) {
-			"HTTP ${http.statusCode.value()}"
+			val detail = sanitizeLinkedInErrorBody(http.responseBodyAsString)?.take(120) ?: ""
+			"HTTP ${http.statusCode.value()}" + if (detail.isNotEmpty()) " | $detail" else ""
 		} else {
 			error.javaClass.simpleName + ": " + (error.message?.take(80) ?: "")
 		}
@@ -257,6 +280,7 @@ class LinkedInPublishingService(
 	companion object {
 		private const val RESTLI_PROTOCOL_HEADER = "X-Restli-Protocol-Version"
 		private const val RESTLI_PROTOCOL_VERSION = "2.0.0"
+		private const val LINKEDIN_VERSION_HEADER = "Linkedin-Version"
 		private const val RESTLI_ID_HEADER = "x-restli-id"
 	}
 }

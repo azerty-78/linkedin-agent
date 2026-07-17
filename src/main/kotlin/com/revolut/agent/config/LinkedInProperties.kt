@@ -9,5 +9,10 @@ class LinkedInProperties {
 	/** Never log this value. */
 	var clientSecret: String = ""
 	var redirectUri: String = "http://localhost:8080/api/linkedin/callback"
+	/** OpenID / legacy v2 (ex. /userinfo). */
 	var apiBaseUrl: String = "https://api.linkedin.com/v2"
+	/** Posts API (Community Management) — remplace ugcPosts. */
+	var restApiBaseUrl: String = "https://api.linkedin.com/rest"
+	/** Header Linkedin-Version (YYYYMM). */
+	var apiVersion: String = "202604"
 }

@@ -188,11 +188,11 @@ Révoque la session courante (le JWT ne fonctionne plus). Appeler avant de suppr
 | `linkedInOrganizationId` | `string \| null` | Legacy / info |
 | `linkedInClientId` | `string \| null` | Client ID app Developer (public) |
 | `linkedInClientSecretMasked` | `string` | Secret masqué (jamais en clair) |
-| `linkedInRedirectUri` | `string \| null` | Sinon défaut backend |
-| `linkedInOauthScopes` | `string \| null` | Sinon défaut backend |
 | `activeLinkedInAccountId` | `string \| null` | Compte utilisé pour publier (max 3) |
 | `schedulerEnabled` | `boolean` | |
 | `updatedAt` | `string` (ISO-8601) | |
+
+> **Redirect OAuth + scopes** : gérés **uniquement côté serveur** (`linkedin.redirect-uri`, `linkedin.oauth-scopes`). **Pas d’UI**, non exposés dans `GET /api/settings`.
 
 ```json
 {
@@ -210,8 +210,6 @@ Révoque la session courante (le JWT ne fonctionne plus). Appeler avant de suppr
   "linkedInOrganizationId": null,
   "linkedInClientId": "78xxxxxxxxxxxx",
   "linkedInClientSecretMasked": "****cret",
-  "linkedInRedirectUri": "http://localhost:8080/api/linkedin/callback",
-  "linkedInOauthScopes": "w_organization_social r_organization_social",
   "activeLinkedInAccountId": null,
   "schedulerEnabled": false,
   "updatedAt": "2026-07-17T11:00:00Z"
@@ -316,8 +314,8 @@ Les anciens modèles `gemini-2.x` indisponibles sont remappés automatiquement.
 | `linkedInClientId` | `string \| null` | Non | `null` = conserver ; `""` = **effacer** ; valeur = remplacer |
 | `linkedInClientSecret` | `string \| null` | Non | `null` / vide = **conserver** (chiffré en DB) |
 | `clearLinkedInClientSecret` | `boolean \| null` | Non | `true` = **effacer** le secret (Delete) |
-| `linkedInRedirectUri` | `string \| null` | Non | `null` = conserver ; `""` = défaut backend |
-| `linkedInOauthScopes` | `string \| null` | Non | `null` = conserver ; `""` = défaut backend |
+| `linkedInRedirectUri` | — | — | **Ignoré** (serveur : `linkedin.redirect-uri`) |
+| `linkedInOauthScopes` | — | — | **Ignoré** (serveur : `linkedin.oauth-scopes`) |
 | `activeLinkedInAccountId` | `string \| null` | Non | `null` = conserver ; `""` = aucun ; id = compte actif (**400** si inconnu) |
 | `schedulerEnabled` | `boolean \| null` | Non | `null` = conserver |
 
@@ -545,27 +543,58 @@ Utile pour un indicateur « API up » dans le frontend / CI.
 
 | Niveau | Quoi | Où |
 |--------|------|-----|
-| **App (org)** | Client ID / Secret / redirect / scopes | `PUT /api/settings` (secret chiffré, jamais en clair) |
+| **App (org)** | Client ID / Secret | `PUT /api/settings` (secret chiffré, jamais en clair) |
+| **OAuth serveur** | Redirect URI + scopes | Properties `linkedin.redirect-uri` / `linkedin.oauth-scopes` — **pas d’UI** |
 | **Compte** | OAuth token + URN Page (+ métadonnées Page) | `/api/linkedin/accounts*` |
-| **Actif** | Compte utilisé pour publier | `activeLinkedInAccountId` (settings **ou** `PUT …/activate`) |
+| **Actif** | Compte qui publie | `PUT …/activate` (recommandé) ou `activeLinkedInAccountId` |
 
 Auth Bearer sur toutes les routes ci-dessous sauf `/api/linkedin/callback` (public).
 
-### 8.0 Credentials app (Settings)
+### 8.0 Credentials app (Settings) — UI
+
+Settings expose seulement Client ID + Secret (masqué). **Pas** de redirect / scopes.
 
 ```json
 {
   "linkedInClientId": "78xxxxxxxxxxxx",
   "linkedInClientSecret": "WPL_AP1....",
-  "linkedInRedirectUri": "https://agent-rev-api.kobecorporation.com/api/linkedin/callback",
-  "linkedInOauthScopes": "w_organization_social r_organization_social",
   "activeLinkedInAccountId": "mongoObjectIdDuCompteActif"
 }
 ```
 
-`GET /api/settings` → `linkedInClientId`, `linkedInClientSecretMasked`, … (secret jamais en clair).
+`GET /api/settings` → `linkedInClientId`, `linkedInClientSecretMasked`, `activeLinkedInAccountId` (pas de `linkedInRedirectUri` / `linkedInOauthScopes`).
 
-### 8.1 Endpoints comptes / résumé
+### 8.1 Tableau comptes (Réglages)
+
+`GET /api/linkedin/accounts` — chaque compte est autonome pour le tableau :
+
+| Colonne UI | Champ API | Notes |
+|------------|-----------|--------|
+| ID LinkedIn | `linkedInClientId` | Copie credentials **org** (même valeur sur chaque ligne) |
+| Secret | `linkedInClientSecretMasked` | Toujours masqué (`****xxxx`) ou `null` |
+| Nom de la page | `organizationName` | Sinon fallback `label` / id dans `linkedInOrganizationUrn` |
+| Statut publication | `isActive` | `true` → **Actif** ; `false` → **En veille** |
+
+> Ne pas confondre `isActive` (qui publie) avec `status` OAuth (`CONNECTED` / `EXPIRED` / …).
+
+```json
+{
+  "id": "665f…",
+  "label": "Page Prod",
+  "status": "CONNECTED",
+  "isActive": true,
+  "organizationName": "KOBE Corporation",
+  "linkedInOrganizationUrn": "urn:li:organization:123",
+  "linkedInClientId": "78xxxxxxxxxxxx",
+  "linkedInClientSecretMasked": "****cret",
+  "organizationLogoUrl": null,
+  "organizationVanityName": null
+}
+```
+
+`organizationName` : résolu best-effort au `PUT …/organization-urn` (et au reconnect OAuth si URN déjà présent) via Organizations API. Scopes : `r_organization_social` (+ CMA). Sinon `null`.
+
+### 8.2 Endpoints comptes / résumé
 
 | Méthode | Route | Succès | Erreurs |
 |---------|-------|--------|---------|
@@ -575,38 +604,18 @@ Auth Bearer sur toutes les routes ci-dessous sauf `/api/linkedin/callback` (publ
 | `POST` | `/api/linkedin/accounts/connect?label=` | `200` | `401`, **`409`** si max 3, `422` si credentials absents |
 | `GET` | `/api/linkedin/accounts/{id}` | `200` | `401`, `404` |
 | `GET` | `/api/linkedin/accounts/{id}/auth-url` | `200` | `401`, `404` |
-| `PUT` | `/api/linkedin/accounts/{id}/activate` | `200` liste | `401`, `404` |
+| `PUT` | `/api/linkedin/accounts/{id}/activate` | `200` `LinkedInAccountListResponse` | `401`, `404` |
 | `PUT` | `/api/linkedin/accounts/{id}` | `200` | `401`, `404` |
 | `PUT` | `/api/linkedin/accounts/{id}/organization-urn` | `200` | `401`, `404`, `400` |
 | `DELETE` | `/api/linkedin/accounts/{id}` | `204` | `401`, `404` |
 
-**Switch actif recommandé** : `PUT /api/linkedin/accounts/{id}/activate` (pas besoin de renvoyer tout le body settings).
+**Switch actif** : `PUT /api/linkedin/accounts/{id}/activate` → `200` liste rafraîchie (`isActive` mis à jour).
 
 Compat legacy : `GET /auth-url`, `GET /status`, `PUT /organization-urn`, `DELETE /disconnect`.
 
 #### `GET /api/linkedin/accounts/active`
 
-Compte explicitement sélectionné — **pas** de fallback « premier connecté ».
-
-```json
-{
-  "id": "665f…",
-  "label": "Page Prod",
-  "status": "CONNECTED",
-  "linkedInUserUrn": "urn:li:person:…",
-  "linkedInOrganizationUrn": "urn:li:organization:123",
-  "connectedAt": "2026-07-17T12:00:00Z",
-  "lastError": null,
-  "isActive": true,
-  "organizationName": "KOBE Corporation",
-  "organizationLogoUrl": "https://…",
-  "organizationVanityName": "kobe-corporation"
-}
-```
-
-`organizationName` / `logoUrl` / `vanityName` : best-effort au `PUT …/organization-urn` via Organizations API ; sinon `null` (front = label + pageId).
-
-**Scopes pour name/logo Page** : Community Management + `r_organization_social` (lecture org). Sans scopes → métadonnées `null`, publication possible quand même.
+Compte explicitement sélectionné — **pas** de fallback « premier connecté ». Même shape que ci-dessus (`isActive: true`).
 
 #### `GET /api/linkedin/summary`
 
@@ -635,13 +644,12 @@ Compte explicitement sélectionné — **pas** de fallback « premier connecté 
 
 #### `PUT /api/linkedin/accounts/{id}/activate`
 
-Réponse = `LinkedInAccountListResponse`.
-
 ```ts
 await fetch(`${API_BASE}/api/linkedin/accounts/${id}/activate`, {
   method: "PUT",
   headers: { Authorization: `Bearer ${token}` },
 });
+// → 200 LinkedInAccountListResponse
 ```
 
 #### `POST /api/linkedin/accounts/connect?label=`
@@ -681,10 +689,14 @@ type LinkedInStatusResponse = {
   linkedInOrganizationUrn: string | null;
   connectedAt: string | null;
   lastError: string | null;
+  /** Publication : true = Actif, false = En veille */
   isActive: boolean;
   organizationName: string | null;
   organizationLogoUrl: string | null;
   organizationVanityName: string | null;
+  /** Credentials org (copie) — secret toujours masqué */
+  linkedInClientId: string | null;
+  linkedInClientSecretMasked: string | null;
 };
 
 type LinkedInAccountListResponse = {

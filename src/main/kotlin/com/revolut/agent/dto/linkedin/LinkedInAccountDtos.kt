@@ -16,6 +16,9 @@ data class LinkedInStatusResponse(
 	val organizationName: String? = null,
 	val organizationLogoUrl: String? = null,
 	val organizationVanityName: String? = null,
+	/** Credentials app org (copie) pour tableau autonome — secret toujours masqué. */
+	val linkedInClientId: String? = null,
+	val linkedInClientSecretMasked: String? = null,
 )
 
 data class LinkedInAccountListResponse(

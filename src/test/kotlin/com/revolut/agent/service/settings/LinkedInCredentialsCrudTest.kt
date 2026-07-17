@@ -69,8 +69,6 @@ class LinkedInCredentialsCrudTest {
 				baseRequest(
 					linkedInClientId = "client-aaa",
 					linkedInClientSecret = "secret-plain-1111",
-					linkedInRedirectUri = "http://localhost:8080/api/linkedin/callback",
-					linkedInOauthScopes = "w_organization_social",
 				),
 				"admin@test.com",
 			),
@@ -78,8 +76,6 @@ class LinkedInCredentialsCrudTest {
 			.assertNext { response ->
 				assertEquals("client-aaa", response.linkedInClientId)
 				assertTrue(response.linkedInClientSecretMasked.startsWith("****"))
-				assertEquals("http://localhost:8080/api/linkedin/callback", response.linkedInRedirectUri)
-				assertEquals("w_organization_social", response.linkedInOauthScopes)
 			}
 			.verifyComplete()
 
@@ -96,6 +92,8 @@ class LinkedInCredentialsCrudTest {
 			.assertNext {
 				assertEquals("client-aaa", it.clientId)
 				assertEquals("secret-plain-1111", it.clientSecret)
+				assertEquals("http://localhost:8080/api/linkedin/callback", it.redirectUri)
+				assertTrue(it.oauthScopes.contains("w_organization_social"))
 			}
 			.verifyComplete()
 
@@ -125,8 +123,6 @@ class LinkedInCredentialsCrudTest {
 				baseRequest(
 					linkedInClientId = "",
 					clearLinkedInClientSecret = true,
-					linkedInRedirectUri = "",
-					linkedInOauthScopes = "",
 				),
 				"admin@test.com",
 			),
@@ -168,8 +164,6 @@ class LinkedInCredentialsCrudTest {
 		linkedInClientId: String? = null,
 		linkedInClientSecret: String? = null,
 		clearLinkedInClientSecret: Boolean? = null,
-		linkedInRedirectUri: String? = null,
-		linkedInOauthScopes: String? = null,
 	) = UpdateOrganizationSettingsRequest(
 		companyName = "KOBE",
 		contentTopic = "tips",
@@ -179,7 +173,5 @@ class LinkedInCredentialsCrudTest {
 		linkedInClientId = linkedInClientId,
 		linkedInClientSecret = linkedInClientSecret,
 		clearLinkedInClientSecret = clearLinkedInClientSecret,
-		linkedInRedirectUri = linkedInRedirectUri,
-		linkedInOauthScopes = linkedInOauthScopes,
 	)
 }

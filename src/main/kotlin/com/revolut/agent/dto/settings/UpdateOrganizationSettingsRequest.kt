@@ -43,14 +43,16 @@ data class UpdateOrganizationSettingsRequest(
 	 */
 	val clearLinkedInClientSecret: Boolean? = null,
 	/**
-	 * Redirect URI OAuth.
-	 * `null` = conserver ; `""` = revenir au défaut backend ; valeur = remplacer.
+	 * Déprécié — redirect OAuth géré en `linkedin.redirect-uri` (serveur).
+	 * Ignoré si présent (compat anciens clients).
 	 */
+	@Deprecated("Server-managed via linkedin.redirect-uri")
 	val linkedInRedirectUri: String? = null,
 	/**
-	 * Scopes OAuth.
-	 * `null` = conserver ; `""` = revenir au défaut backend ; valeur = remplacer.
+	 * Déprécié — scopes gérés en `linkedin.oauth-scopes` (serveur).
+	 * Ignoré si présent (compat anciens clients).
 	 */
+	@Deprecated("Server-managed via linkedin.oauth-scopes")
 	val linkedInOauthScopes: String? = null,
 	/** Compte LinkedIn à utiliser pour publier. Null = conserver ; `""` = aucun. */
 	val activeLinkedInAccountId: String? = null,

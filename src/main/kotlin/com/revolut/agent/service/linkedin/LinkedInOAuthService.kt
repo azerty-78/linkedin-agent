@@ -125,10 +125,12 @@ class LinkedInOAuthService(
 	}
 
 	fun listAccounts(): Mono<LinkedInAccountListResponse> =
-		organizationSettingsService.getActiveLinkedInAccountId()
-			.flatMap { activeId ->
+		organizationSettingsService.getSettings()
+			.flatMap { settings ->
+				val activeId = settings.activeLinkedInAccountId.orEmpty()
+				val creds = orgCredsView(settings)
 				linkedInConnectionRepository.findAllByOrderByCreatedAtAsc()
-					.map { toStatusResponse(it, activeId) }
+					.map { toStatusResponse(it, activeId, creds) }
 					.collectList()
 					.map { accounts ->
 						LinkedInAccountListResponse(
@@ -144,26 +146,27 @@ class LinkedInOAuthService(
 	 * Pas de fallback « premier connecté » — 404 si absent.
 	 */
 	fun getActiveAccount(): Mono<LinkedInStatusResponse> =
-		organizationSettingsService.getActiveLinkedInAccountId()
-			.flatMap { activeId ->
+		organizationSettingsService.getSettings()
+			.flatMap { settings ->
+				val activeId = settings.activeLinkedInAccountId.orEmpty()
 				if (activeId.isBlank()) {
 					Mono.error(NoSuchElementException("No active LinkedIn account"))
 				} else {
+					val creds = orgCredsView(settings)
 					linkedInConnectionRepository.findById(activeId)
 						.switchIfEmpty(Mono.error(NoSuchElementException("Active LinkedIn account not found: $activeId")))
-						.map { toStatusResponse(it, activeId) }
+						.map { toStatusResponse(it, activeId, creds) }
 				}
 			}
 
 	fun getSummary(): Mono<LinkedInSummaryResponse> =
 		organizationSettingsService.getSettings()
-			.zipWith(organizationSettingsService.getActiveLinkedInAccountId())
-			.flatMap { tuple ->
-				val settings = tuple.t1
-				val activeId = tuple.t2
+			.flatMap { settings ->
+				val activeId = settings.activeLinkedInAccountId.orEmpty()
 				val hasClientId = !settings.linkedInClientId.isNullOrBlank()
 				val hasClientSecret = settings.linkedInClientSecretMasked.isNotBlank()
 				val hasCreds = hasClientId && hasClientSecret
+				val creds = orgCredsView(settings)
 
 				linkedInConnectionRepository.findAllByOrderByCreatedAtAsc()
 					.collectList()
@@ -190,7 +193,7 @@ class LinkedInOAuthService(
 							hasAppCredentials = hasCreds,
 							accountsCount = accounts.size,
 							maxAccounts = LinkedInConnection.MAX_ACCOUNTS,
-							activeAccount = active?.let { toStatusResponse(it, activeId) },
+							activeAccount = active?.let { toStatusResponse(it, activeId, creds) },
 							canPublish = blockers.isEmpty(),
 							publishBlockers = blockers.distinct(),
 						)
@@ -206,37 +209,25 @@ class LinkedInOAuthService(
 			}
 
 	fun getAccount(accountId: String): Mono<LinkedInStatusResponse> =
-		organizationSettingsService.getActiveLinkedInAccountId()
-			.flatMap { activeId ->
+		organizationSettingsService.getSettings()
+			.flatMap { settings ->
+				val activeId = settings.activeLinkedInAccountId.orEmpty()
+				val creds = orgCredsView(settings)
 				linkedInConnectionRepository.findById(accountId)
 					.switchIfEmpty(Mono.error(NoSuchElementException("LinkedIn account not found: $accountId")))
-					.map { toStatusResponse(it, activeId) }
+					.map { toStatusResponse(it, activeId, creds) }
 			}
 
 	/** Status du compte actif (ou premier connecté). */
 	fun getConnectionStatus(): Mono<LinkedInStatusResponse> =
-		resolveActiveAccount()
-			.flatMap { account ->
-				organizationSettingsService.getActiveLinkedInAccountId()
-					.map { activeId -> toStatusResponse(account, activeId) }
+		organizationSettingsService.getSettings()
+			.flatMap { settings ->
+				val activeId = settings.activeLinkedInAccountId.orEmpty()
+				val creds = orgCredsView(settings)
+				resolveActiveAccount()
+					.map { account -> toStatusResponse(account, activeId, creds) }
+					.switchIfEmpty(Mono.just(emptyStatusResponse(creds)))
 			}
-			.switchIfEmpty(
-				Mono.just(
-					LinkedInStatusResponse(
-						id = null,
-						label = "",
-						status = LinkedInConnectionStatus.NOT_CONNECTED,
-						linkedInUserUrn = null,
-						linkedInOrganizationUrn = null,
-						connectedAt = null,
-						lastError = null,
-						isActive = false,
-						organizationName = null,
-						organizationLogoUrl = null,
-						organizationVanityName = null,
-					),
-				),
-			)
 
 	fun setOrganizationUrn(accountId: String, request: SetOrganizationUrnRequest): Mono<LinkedInStatusResponse> =
 		linkedInConnectionRepository.findById(accountId)
@@ -259,8 +250,7 @@ class LinkedInOAuthService(
 					}
 			}
 			.flatMap { saved ->
-				organizationSettingsService.getActiveLinkedInAccountId()
-					.map { activeId -> toStatusResponse(saved, activeId) }
+				withOrgCredsStatus(saved)
 			}
 
 	fun updateAccount(accountId: String, request: UpdateLinkedInAccountRequest): Mono<LinkedInStatusResponse> =
@@ -275,8 +265,7 @@ class LinkedInOAuthService(
 				)
 			}
 			.flatMap { saved ->
-				organizationSettingsService.getActiveLinkedInAccountId()
-					.map { activeId -> toStatusResponse(saved, activeId) }
+				withOrgCredsStatus(saved)
 			}
 
 	fun deleteAccount(accountId: String): Mono<Void> =
@@ -439,13 +428,73 @@ class LinkedInOAuthService(
 						Mono.just(saved)
 					}
 				}
+				.flatMap { account ->
+					val orgUrn = account.linkedInOrganizationUrn
+					if (orgUrn.isNullOrBlank()) {
+						Mono.just(account)
+					} else {
+						enrichOrganizationMetadata(account, orgUrn)
+							.defaultIfEmpty(OrganizationMetadata(null, null, null))
+							.flatMap { meta ->
+								if (meta.name == null && meta.logoUrl == null && meta.vanityName == null) {
+									Mono.just(account)
+								} else {
+									linkedInConnectionRepository.save(
+										account.copy(
+											organizationName = meta.name ?: account.organizationName,
+											organizationLogoUrl = meta.logoUrl ?: account.organizationLogoUrl,
+											organizationVanityName = meta.vanityName ?: account.organizationVanityName,
+											updatedAt = Instant.now(),
+										),
+									)
+								}
+							}
+					}
+				}
 				.doOnSuccess {
 					log.info("LinkedIn connected | accountId={} | userUrn={}", saved.id, saved.linkedInUserUrn)
 				}
 		}
 	}
 
-	private fun toStatusResponse(connection: LinkedInConnection, activeId: String): LinkedInStatusResponse =
+	private fun withOrgCredsStatus(connection: LinkedInConnection): Mono<LinkedInStatusResponse> =
+		organizationSettingsService.getSettings()
+			.map { settings ->
+				toStatusResponse(
+					connection,
+					settings.activeLinkedInAccountId.orEmpty(),
+					orgCredsView(settings),
+				)
+			}
+
+	private fun orgCredsView(settings: com.revolut.agent.dto.settings.OrganizationSettingsResponse): OrgCredsView =
+		OrgCredsView(
+			clientId = settings.linkedInClientId,
+			clientSecretMasked = settings.linkedInClientSecretMasked.takeIf { it.isNotBlank() },
+		)
+
+	private fun emptyStatusResponse(creds: OrgCredsView): LinkedInStatusResponse =
+		LinkedInStatusResponse(
+			id = null,
+			label = "",
+			status = LinkedInConnectionStatus.NOT_CONNECTED,
+			linkedInUserUrn = null,
+			linkedInOrganizationUrn = null,
+			connectedAt = null,
+			lastError = null,
+			isActive = false,
+			organizationName = null,
+			organizationLogoUrl = null,
+			organizationVanityName = null,
+			linkedInClientId = creds.clientId,
+			linkedInClientSecretMasked = creds.clientSecretMasked,
+		)
+
+	private fun toStatusResponse(
+		connection: LinkedInConnection,
+		activeId: String,
+		creds: OrgCredsView,
+	): LinkedInStatusResponse =
 		LinkedInStatusResponse(
 			id = connection.id,
 			label = connection.label,
@@ -458,6 +507,8 @@ class LinkedInOAuthService(
 			organizationName = connection.organizationName,
 			organizationLogoUrl = connection.organizationLogoUrl,
 			organizationVanityName = connection.organizationVanityName,
+			linkedInClientId = creds.clientId,
+			linkedInClientSecretMasked = creds.clientSecretMasked,
 		)
 
 	/**
@@ -564,6 +615,11 @@ private data class OrganizationMetadata(
 	val name: String?,
 	val logoUrl: String?,
 	val vanityName: String?,
+)
+
+private data class OrgCredsView(
+	val clientId: String?,
+	val clientSecretMasked: String?,
 )
 
 class LinkedInOAuthException(message: String) : RuntimeException(message)

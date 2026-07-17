@@ -100,14 +100,9 @@ class OrganizationSettingsService(
 									request.linkedInClientSecret,
 									request.clearLinkedInClientSecret == true,
 								),
-								linkedInRedirectUri = resolveOptionalClearable(
-									base.linkedInRedirectUri,
-									request.linkedInRedirectUri,
-								),
-								linkedInOauthScopes = resolveOptionalClearable(
-									base.linkedInOauthScopes,
-									request.linkedInOauthScopes,
-								),
+								// redirect / scopes : 100 % serveur (linkedin.redirect-uri / oauth-scopes) — ignore PUT
+								linkedInRedirectUri = base.linkedInRedirectUri,
+								linkedInOauthScopes = base.linkedInOauthScopes,
 								activeLinkedInAccountId = nextActiveAccountId,
 								schedulerEnabled = request.schedulerEnabled ?: base.schedulerEnabled,
 								updatedAt = Instant.now(),
@@ -146,10 +141,8 @@ class OrganizationSettingsService(
 							"LinkedIn client secret illisible (ENCRYPTION_KEY?). Re-saisissez linkedInClientSecret.",
 						),
 					)
-				val redirect = settings.linkedInRedirectUri?.trim()?.takeIf { it.isNotEmpty() }
-					?: linkedInProperties.defaultRedirectUri
-				val scopes = settings.linkedInOauthScopes?.trim()?.takeIf { it.isNotEmpty() }
-					?: linkedInProperties.defaultOauthScopes
+				val redirect = linkedInProperties.redirectUri
+				val scopes = linkedInProperties.oauthScopes
 				Mono.just(
 					LinkedInAppCredentials(
 						clientId = clientId,
@@ -327,10 +320,6 @@ class OrganizationSettingsService(
 			linkedInOrganizationId = settings.linkedInOrganizationId,
 			linkedInClientId = settings.linkedInClientId,
 			linkedInClientSecretMasked = maskEncrypted(settings.encryptedLinkedInClientSecret),
-			linkedInRedirectUri = settings.linkedInRedirectUri
-				?: linkedInProperties.defaultRedirectUri,
-			linkedInOauthScopes = settings.linkedInOauthScopes
-				?: linkedInProperties.defaultOauthScopes,
 			activeLinkedInAccountId = settings.activeLinkedInAccountId,
 			schedulerEnabled = settings.schedulerEnabled,
 			updatedAt = settings.updatedAt,

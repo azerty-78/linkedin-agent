@@ -78,10 +78,11 @@ app.frontend-url=${FRONTEND_URL:https://agent-rev-front.kobecorporation.com}
 app.cors-allowed-origins=${CORS_ALLOWED_ORIGINS:https://agent-rev-front.kobecorporation.com}
 
 # ========================================
-# LINKEDIN (non-secret defaults only — credentials en DB)
+# LINKEDIN — redirect + scopes 100 % serveur (pas d’UI)
+# Credentials Client ID/Secret → PUT /api/settings (DB)
 # ========================================
-linkedin.default-redirect-uri=${LINKEDIN_REDIRECT_URI:https://agent-rev-api.kobecorporation.com/api/linkedin/callback}
-linkedin.default-oauth-scopes=${LINKEDIN_OAUTH_SCOPES:w_organization_social r_organization_social}
+linkedin.redirect-uri=${LINKEDIN_REDIRECT_URI:https://agent-rev-api.kobecorporation.com/api/linkedin/callback}
+linkedin.oauth-scopes=${LINKEDIN_OAUTH_SCOPES:w_organization_social r_organization_social}
 linkedin.api-base-url=https://api.linkedin.com/v2
 linkedin.rest-api-base-url=https://api.linkedin.com/rest
 linkedin.api-version=${LINKEDIN_API_VERSION:202604}

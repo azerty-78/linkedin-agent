@@ -1,6 +1,5 @@
 package com.revolut.agent.service.settings
 
-import com.revolut.agent.config.AiModelProperties
 import com.revolut.agent.config.EncryptionProperties
 import com.revolut.agent.config.LinkedInProperties
 import com.revolut.agent.dto.settings.UpdateOrganizationSettingsRequest
@@ -59,7 +58,6 @@ class LinkedInCredentialsCrudTest {
 			organizationSettingsRepository = settingsRepository,
 			linkedInConnectionRepository = connectionRepository,
 			encryptionService = encryptionService,
-			aiModelProperties = AiModelProperties(),
 			linkedInProperties = LinkedInProperties(),
 		)
 	}

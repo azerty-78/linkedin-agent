@@ -1,6 +1,5 @@
 package com.revolut.agent.service.settings
 
-import com.revolut.agent.config.AiModelProperties
 import com.revolut.agent.config.LinkedInProperties
 import com.revolut.agent.dto.settings.LlmModelOptionResponse
 import com.revolut.agent.dto.settings.LlmModelsCatalogResponse
@@ -28,7 +27,6 @@ class OrganizationSettingsService(
 	private val organizationSettingsRepository: OrganizationSettingsRepository,
 	private val linkedInConnectionRepository: LinkedInConnectionRepository,
 	private val encryptionService: EncryptionService,
-	private val aiModelProperties: AiModelProperties,
 	private val linkedInProperties: LinkedInProperties,
 ) {
 
@@ -302,11 +300,7 @@ class OrganizationSettingsService(
 	}
 
 	private fun fallbackModel(provider: LlmProvider): String =
-		when (provider) {
-			LlmProvider.OPENAI -> aiModelProperties.openai.model
-			LlmProvider.ANTHROPIC -> aiModelProperties.anthropic.model
-			LlmProvider.GEMINI -> LlmModelCatalog.resolveGeminiModel(aiModelProperties.gemini.model)
-		}
+		LlmModelCatalog.defaultModel(provider)
 
 	private fun toResponse(settings: OrganizationSettings): OrganizationSettingsResponse =
 		OrganizationSettingsResponse(

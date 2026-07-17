@@ -44,10 +44,9 @@ class LinkedInOAuthService(
 		val state = generateState()
 		pendingStates[state] = Instant.now()
 
-		// openid/profile/email : identité admin
-		// w_organization_social : publier EN TANT QUE la Page entreprise (cible produit)
-		// w_member_social : optionnel (profil perso) — non utilisé pour la publication Page
-		val scope = listOf("openid", "profile", "email", "w_organization_social").joinToString(" ")
+		val scope = linkedInProperties.oauthScopes.trim().ifBlank {
+			"w_organization_social r_organization_social"
+		}
 
 		val authorizationUrl = UriComponentsBuilder
 			.fromUriString(AUTHORIZATION_URL)
@@ -60,7 +59,12 @@ class LinkedInOAuthService(
 			.encode()
 			.toUriString()
 
-		log.info("LinkedIn OAuth authorization URL built (state issued, expires in {} min)", STATE_TTL.toMinutes())
+		log.info(
+			"LinkedIn OAuth authorization URL built | clientId={} | scopes={} | redirectUri={}",
+			linkedInProperties.clientId,
+			scope,
+			linkedInProperties.redirectUri,
+		)
 		return LinkedInAuthUrlResponse(authorizationUrl = authorizationUrl)
 	}
 
@@ -87,15 +91,27 @@ class LinkedInOAuthService(
 				log.info("LinkedIn token granted scopes={}", grantedScopes)
 				if (!grantedScopes.split(Regex("[,\\s]+")).any { it.equals("w_organization_social", ignoreCase = true) }) {
 					log.warn(
-						"LinkedIn token WITHOUT w_organization_social — Page publishing will fail until user re-consents. " +
-							"Granted: {}",
+						"LinkedIn token WITHOUT w_organization_social — Page publishing will fail. Granted: {}",
 						grantedScopes,
 					)
 				}
 				val expiresIn = tokenResponse.expires_in ?: DEFAULT_EXPIRES_IN_SECONDS
+				// Community Management apps often lack OpenID — userinfo may 401/403; connection still OK.
 				fetchUserInfo(accessToken)
 					.flatMap { userInfo ->
-						val userUrn = resolvePersonUrn(userInfo)
+						val urn = resolvePersonUrn(userInfo)
+						if (urn != null) Mono.just(urn) else Mono.empty()
+					}
+					.onErrorResume { ex ->
+						log.warn(
+							"LinkedIn userinfo unavailable (normal on CMA-only apps): {}",
+							ex.message?.take(120),
+						)
+						Mono.empty()
+					}
+					.defaultIfEmpty("")
+					.flatMap { userUrnOrEmpty ->
+						val userUrn = userUrnOrEmpty.takeIf { it.isNotBlank() }
 						persistConnected(accessToken, expiresIn, userUrn)
 					}
 			}

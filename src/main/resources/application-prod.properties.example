@@ -88,6 +88,7 @@ app.frontend-url=${FRONTEND_URL}
 linkedin.client-id=${LINKEDIN_CLIENT_ID}
 linkedin.client-secret=${LINKEDIN_CLIENT_SECRET}
 linkedin.redirect-uri=${LINKEDIN_REDIRECT_URI}
+linkedin.oauth-scopes=${LINKEDIN_OAUTH_SCOPES:w_organization_social r_organization_social}
 linkedin.api-base-url=https://api.linkedin.com/v2
 linkedin.rest-api-base-url=https://api.linkedin.com/rest
 linkedin.api-version=${LINKEDIN_API_VERSION:202604}

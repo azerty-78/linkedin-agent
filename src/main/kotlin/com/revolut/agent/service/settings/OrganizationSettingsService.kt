@@ -9,6 +9,7 @@ import com.revolut.agent.dto.settings.UpdateOrganizationSettingsRequest
 import com.revolut.agent.model.settings.LlmModelCatalog
 import com.revolut.agent.model.settings.LlmProvider
 import com.revolut.agent.model.settings.OrganizationSettings
+import com.revolut.agent.repository.linkedin.LinkedInConnectionRepository
 import com.revolut.agent.repository.settings.OrganizationSettingsRepository
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
@@ -25,6 +26,7 @@ data class LinkedInAppCredentials(
 @Service
 class OrganizationSettingsService(
 	private val organizationSettingsRepository: OrganizationSettingsRepository,
+	private val linkedInConnectionRepository: LinkedInConnectionRepository,
 	private val encryptionService: EncryptionService,
 	private val aiModelProperties: AiModelProperties,
 	private val linkedInProperties: LinkedInProperties,
@@ -72,40 +74,49 @@ class OrganizationSettingsService(
 		findOrCreateSettings()
 			.flatMap { existing ->
 				val base = clearUnreadableKeys(existing)
-				val updated = base.copy(
-					companyName = request.companyName.trim(),
-					contentTopic = request.contentTopic.trim(),
-					publishHourUtc = request.publishHourUtc,
-					timezone = request.timezone.trim(),
-					activeLlmProvider = request.activeLlmProvider,
-					openAiModel = resolveModel(base.openAiModel, request.openAiModel, LlmProvider.OPENAI),
-					anthropicModel = resolveModel(base.anthropicModel, request.anthropicModel, LlmProvider.ANTHROPIC),
-					geminiModel = resolveModel(base.geminiModel, request.geminiModel, LlmProvider.GEMINI),
-					encryptedOpenAiKey = resolveEncryptedKey(base.encryptedOpenAiKey, request.openAiApiKey),
-					encryptedAnthropicKey = resolveEncryptedKey(base.encryptedAnthropicKey, request.anthropicApiKey),
-					encryptedGeminiKey = resolveEncryptedKey(base.encryptedGeminiKey, request.geminiApiKey),
-					linkedInOrganizationId = request.linkedInOrganizationId?.trim()?.takeIf { it.isNotEmpty() }
-						?: base.linkedInOrganizationId,
-					linkedInClientId = request.linkedInClientId?.trim()?.takeIf { it.isNotEmpty() }
-						?: base.linkedInClientId,
-					encryptedLinkedInClientSecret = resolveEncryptedKey(
-						base.encryptedLinkedInClientSecret,
-						request.linkedInClientSecret,
-					),
-					linkedInRedirectUri = request.linkedInRedirectUri?.trim()?.takeIf { it.isNotEmpty() }
-						?: base.linkedInRedirectUri,
-					linkedInOauthScopes = request.linkedInOauthScopes?.trim()?.takeIf { it.isNotEmpty() }
-						?: base.linkedInOauthScopes,
-					activeLinkedInAccountId = when {
-						request.activeLinkedInAccountId == null -> base.activeLinkedInAccountId
-						request.activeLinkedInAccountId.isBlank() -> null
-						else -> request.activeLinkedInAccountId.trim()
-					},
-					schedulerEnabled = request.schedulerEnabled ?: base.schedulerEnabled,
-					updatedAt = Instant.now(),
-					updatedBy = updatedByEmail,
-				)
-				organizationSettingsRepository.save(updated)
+				val nextActiveAccountId = when {
+					request.activeLinkedInAccountId == null -> base.activeLinkedInAccountId
+					request.activeLinkedInAccountId.isBlank() -> null
+					else -> request.activeLinkedInAccountId.trim()
+				}
+				validateActiveLinkedInAccountId(nextActiveAccountId)
+					.then(
+						organizationSettingsRepository.save(
+							base.copy(
+								companyName = request.companyName.trim(),
+								contentTopic = request.contentTopic.trim(),
+								publishHourUtc = request.publishHourUtc,
+								timezone = request.timezone.trim(),
+								activeLlmProvider = request.activeLlmProvider,
+								openAiModel = resolveModel(base.openAiModel, request.openAiModel, LlmProvider.OPENAI),
+								anthropicModel = resolveModel(base.anthropicModel, request.anthropicModel, LlmProvider.ANTHROPIC),
+								geminiModel = resolveModel(base.geminiModel, request.geminiModel, LlmProvider.GEMINI),
+								encryptedOpenAiKey = resolveEncryptedKey(base.encryptedOpenAiKey, request.openAiApiKey),
+								encryptedAnthropicKey = resolveEncryptedKey(base.encryptedAnthropicKey, request.anthropicApiKey),
+								encryptedGeminiKey = resolveEncryptedKey(base.encryptedGeminiKey, request.geminiApiKey),
+								linkedInOrganizationId = request.linkedInOrganizationId?.trim()?.takeIf { it.isNotEmpty() }
+									?: base.linkedInOrganizationId,
+								linkedInClientId = resolveOptionalClearable(base.linkedInClientId, request.linkedInClientId),
+								encryptedLinkedInClientSecret = resolveLinkedInClientSecret(
+									base.encryptedLinkedInClientSecret,
+									request.linkedInClientSecret,
+									request.clearLinkedInClientSecret == true,
+								),
+								linkedInRedirectUri = resolveOptionalClearable(
+									base.linkedInRedirectUri,
+									request.linkedInRedirectUri,
+								),
+								linkedInOauthScopes = resolveOptionalClearable(
+									base.linkedInOauthScopes,
+									request.linkedInOauthScopes,
+								),
+								activeLinkedInAccountId = nextActiveAccountId,
+								schedulerEnabled = request.schedulerEnabled ?: base.schedulerEnabled,
+								updatedAt = Instant.now(),
+								updatedBy = updatedByEmail,
+							),
+						),
+					)
 			}
 			.map(::toResponse)
 
@@ -156,7 +167,8 @@ class OrganizationSettingsService(
 		findOrCreateSettings().map { it.activeLinkedInAccountId.orEmpty() }
 
 	fun setActiveLinkedInAccountId(accountId: String?): Mono<OrganizationSettings> =
-		findOrCreateSettings()
+		validateActiveLinkedInAccountId(accountId)
+			.then(findOrCreateSettings())
 			.flatMap { settings ->
 				organizationSettingsRepository.save(
 					settings.copy(
@@ -165,6 +177,19 @@ class OrganizationSettingsService(
 					),
 				)
 			}
+
+	private fun validateActiveLinkedInAccountId(accountId: String?): Mono<Void> {
+		if (accountId.isNullOrBlank()) {
+			return Mono.empty()
+		}
+		return linkedInConnectionRepository.findById(accountId)
+			.switchIfEmpty(
+				Mono.error(
+					IllegalArgumentException("LinkedIn account not found: $accountId"),
+				),
+			)
+			.then()
+	}
 
 	internal fun getDecryptedKeyFor(provider: LlmProvider): Mono<String> =
 		findOrCreateSettings()
@@ -241,6 +266,29 @@ class OrganizationSettingsService(
 	private fun resolveEncryptedKey(existingEncrypted: String?, incomingPlain: String?): String? =
 		incomingPlain?.trim()?.takeIf { it.isNotEmpty() }?.let(encryptionService::encrypt)
 			?: existingEncrypted
+
+	/**
+	 * `null` incoming → keep existing.
+	 * blank incoming → clear (`null`).
+	 * non-blank → replace.
+	 */
+	private fun resolveOptionalClearable(existing: String?, incoming: String?): String? =
+		when {
+			incoming == null -> existing
+			incoming.isBlank() -> null
+			else -> incoming.trim()
+		}
+
+	private fun resolveLinkedInClientSecret(
+		existingEncrypted: String?,
+		incomingPlain: String?,
+		clear: Boolean,
+	): String? {
+		if (clear) {
+			return null
+		}
+		return resolveEncryptedKey(existingEncrypted, incomingPlain)
+	}
 
 	private fun resolveModel(existing: String?, incoming: String?, provider: LlmProvider): String {
 		val candidate = incoming?.trim()?.takeIf { it.isNotEmpty() }

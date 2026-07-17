@@ -170,8 +170,13 @@ Si OpenAI/Anthropic renvoient un quota `429` et qu’une clé Gemini est configu
 | `openAiKeyMasked` | `string` | Masqué (`****xxxx`) ou `""` si absente |
 | `anthropicKeyMasked` | `string` | Idem |
 | `geminiKeyMasked` | `string` | Idem |
-| `linkedInOrganizationId` | `string \| null` | |
-| `schedulerEnabled` | `boolean` | **Lecture seule** (pas dans le PUT) |
+| `linkedInOrganizationId` | `string \| null` | Legacy / info |
+| `linkedInClientId` | `string \| null` | Client ID app Developer (public) |
+| `linkedInClientSecretMasked` | `string` | Secret masqué (jamais en clair) |
+| `linkedInRedirectUri` | `string \| null` | Sinon défaut backend |
+| `linkedInOauthScopes` | `string \| null` | Sinon défaut backend |
+| `activeLinkedInAccountId` | `string \| null` | Compte utilisé pour publier (max 3) |
+| `schedulerEnabled` | `boolean` | |
 | `updatedAt` | `string` (ISO-8601) | |
 
 ```json
@@ -188,12 +193,17 @@ Si OpenAI/Anthropic renvoient un quota `429` et qu’une clé Gemini est configu
   "anthropicKeyMasked": "",
   "geminiKeyMasked": "****wxyz",
   "linkedInOrganizationId": null,
+  "linkedInClientId": "78xxxxxxxxxxxx",
+  "linkedInClientSecretMasked": "****cret",
+  "linkedInRedirectUri": "http://localhost:8080/api/linkedin/callback",
+  "linkedInOauthScopes": "w_organization_social r_organization_social",
+  "activeLinkedInAccountId": null,
   "schedulerEnabled": false,
   "updatedAt": "2026-07-17T11:00:00Z"
 }
 ```
 
-**UI** : une clé masquée non vide = clé déjà configurée (ne jamais préremplir le champ clé avec la valeur masquée).
+**UI** : une clé masquée non vide = clé déjà configurée (ne jamais préremplir le champ clé avec la valeur masquée). Même règle pour `linkedInClientSecretMasked`.
 
 ---
 
@@ -288,6 +298,13 @@ Les anciens modèles `gemini-2.x` indisponibles sont remappés automatiquement.
 | `anthropicApiKey` | `string \| null` | Non | Idem |
 | `geminiApiKey` | `string \| null` | Non | Idem |
 | `linkedInOrganizationId` | `string \| null` | Non | |
+| `linkedInClientId` | `string \| null` | Non | `null` = conserver ; `""` = **effacer** ; valeur = remplacer |
+| `linkedInClientSecret` | `string \| null` | Non | `null` / vide = **conserver** (chiffré en DB) |
+| `clearLinkedInClientSecret` | `boolean \| null` | Non | `true` = **effacer** le secret (Delete) |
+| `linkedInRedirectUri` | `string \| null` | Non | `null` = conserver ; `""` = défaut backend |
+| `linkedInOauthScopes` | `string \| null` | Non | `null` = conserver ; `""` = défaut backend |
+| `activeLinkedInAccountId` | `string \| null` | Non | `null` = conserver ; `""` = aucun ; id = compte actif (**400** si inconnu) |
+| `schedulerEnabled` | `boolean \| null` | Non | `null` = conserver |
 
 ```json
 {
@@ -302,16 +319,19 @@ Les anciens modèles `gemini-2.x` indisponibles sont remappés automatiquement.
   "geminiApiKey": "AIza...",
   "openAiApiKey": null,
   "anthropicApiKey": null,
-  "linkedInOrganizationId": null
+  "linkedInOrganizationId": null,
+  "linkedInClientId": "78xxxxxxxxxxxx",
+  "linkedInClientSecret": "WPL_AP1....",
+  "activeLinkedInAccountId": null
 }
 ```
 
 **Réponse `200`** : même shape que `GET /api/settings`.
 
 **Règles UI**
-- Ne jamais préremplir les champs clé avec la valeur masquée.
-- Champ clé vide au submit → envoyer `null` (ou omettre) pour ne pas écraser.
-- `schedulerEnabled` n’est **pas** modifiable via cette API.
+- Ne jamais préremplir les champs clé/secret avec la valeur masquée.
+- Champ clé/secret vide au submit → envoyer `null` (ou omettre) pour ne pas écraser.
+- Choisir le compte LinkedIn de publication via `activeLinkedInAccountId` (liste = `GET /api/linkedin/accounts`).
 
 ---
 
@@ -506,11 +526,11 @@ Utile pour un indicateur « API up » dans le frontend / CI.
 
 ## 8. LinkedIn — credentials en DB + multi-comptes (max 3)
 
-### 8.0 Prérequis settings (credentials app Developer)
+Les **Client ID / Client Secret** ne sont **plus** dans `.env` : ils sont stockés chiffrés dans `OrganizationSettings` (comme les clés IA).
 
-Les **Client ID / Client Secret** ne sont plus dans `.env`. Les saisir via settings :
+### 8.0 Prérequis — credentials app (Settings)
 
-`PUT /api/settings` (champs additionnels) :
+`PUT /api/settings` (champs LinkedIn) :
 
 ```json
 {
@@ -522,59 +542,53 @@ Les **Client ID / Client Secret** ne sont plus dans `.env`. Les saisir via setti
 }
 ```
 
-`GET /api/settings` renvoie `linkedInClientId`, `linkedInClientSecretMasked`, `linkedInRedirectUri`, `linkedInOauthScopes`, `activeLinkedInAccountId` (secret jamais en clair).
+`GET /api/settings` → `linkedInClientId`, `linkedInClientSecretMasked`, `linkedInRedirectUri`, `linkedInOauthScopes`, `activeLinkedInAccountId`.
 
-### 8.1 Comptes LinkedIn (page dédiée front)
+### 8.1 Page dédiée — comptes (max 3)
 
 | Méthode | Route | Rôle |
 |---------|-------|------|
-| `GET` | `/api/linkedin/accounts` | Liste (max 3) + `activeLinkedInAccountId` |
-| `POST` | `/api/linkedin/accounts/connect?label=` | OAuth **nouveau** compte → `{ authorizationUrl }` ; **409** si déjà 3 |
+| `GET` | `/api/linkedin/accounts` | Liste + `maxAccounts: 3` + `activeLinkedInAccountId` |
+| `POST` | `/api/linkedin/accounts/connect?label=` | OAuth **nouveau** → `{ authorizationUrl, accountId? }` ; **409** si déjà 3 |
 | `GET` | `/api/linkedin/accounts/{id}` | Détail |
 | `GET` | `/api/linkedin/accounts/{id}/auth-url` | Reconnecter OAuth |
 | `PUT` | `/api/linkedin/accounts/{id}` | `{ "label": "Page Prod" }` |
 | `PUT` | `/api/linkedin/accounts/{id}/organization-urn` | `{ "organizationUrn": "urn:li:organization:…" }` |
-| `DELETE` | `/api/linkedin/accounts/{id}` | Supprime le compte |
+| `DELETE` | `/api/linkedin/accounts/{id}` | Supprime ; si c’était l’actif → `activeLinkedInAccountId` vidé |
 
-**Choisir le compte actif** : `PUT /api/settings` avec `activeLinkedInAccountId`.
+**Compte actif** (settings) : `PUT /api/settings` avec `activeLinkedInAccountId`. Le scheduler / publish-test utilisent **uniquement** ce compte (sinon premier `CONNECTED`).
 
-Flow UI page LinkedIn :
-1. Settings → saisir Client ID/Secret LinkedIn
-2. `POST /accounts/connect` → ouvrir `authorizationUrl`
-3. Callback → `?connected=true` → `GET /accounts`
-4. Saisir URN Page sur le compte
+Flow UI `/dashboard/linkedin` :
+1. Settings → Client ID / Secret LinkedIn
+2. `POST /accounts/connect?label=…` → `window.location = authorizationUrl`
+3. Callback backend → `?connected=true` → `GET /accounts`
+4. URN Page sur le compte
 5. Settings → `activeLinkedInAccountId` = id choisi
-6. Publier / scheduler utilise **uniquement** le compte actif
+6. Publier
 
-Compat legacy : `/api/linkedin/auth-url`, `/status`, `/organization-urn`, `/disconnect` opèrent sur le compte actif.
+Compat legacy (compte actif) : `GET /auth-url`, `GET /status`, `PUT /organization-urn`, `DELETE /disconnect`.
 
-### 8.1 Flow à implémenter (important)
+### 8.2 Flow OAuth
 
 ```
 [Dashboard LinkedIn]
     │
-    ├─ mount → GET /api/linkedin/status  (JWT)
+    ├─ mount → GET /api/linkedin/accounts  (JWT)
     │
-    ├─ clic « Connecter LinkedIn »
-    │     → GET /api/linkedin/auth-url  (JWT)
+    ├─ clic « Ajouter un compte »
+    │     → POST /api/linkedin/accounts/connect?label=…  (JWT)
     │     → window.location.href = authorizationUrl
-    │       (ou window.open en popup — voir §8.6)
     │
     │   ┌─ navigateur → LinkedIn (consentement)
-    │   └─ LinkedIn → GET /api/linkedin/callback  (PUBLIC, sans JWT)
-    │         → backend échange code + stocke token
-    │         → 302 → {FRONTEND_URL}/dashboard/linkedin?connected=true
-    │              ou ?connected=false&error=...
+    │   └─ LinkedIn → GET /api/linkedin/callback  (PUBLIC)
+    │         → 302 → {FRONTEND_URL}/dashboard/linkedin?connected=true|false
     │
-    └─ page /dashboard/linkedin lit les query params
-          → toast succès / erreur
-          → GET /api/linkedin/status pour rafraîchir l’UI
-          → nettoyer l’URL (replaceState) pour éviter un toast au refresh
+    └─ lire query params → toast → GET /accounts → replaceState
 ```
 
-**Le frontend ne voit jamais** `code`, `client_secret` ni `access_token`. Le callback est 100 % backend.
+Le frontend ne voit jamais `code`, `client_secret` ni `access_token`.
 
-### 8.2 Types TypeScript
+### 8.3 Types TypeScript
 
 ```ts
 type LinkedInConnectionStatus =
@@ -584,95 +598,65 @@ type LinkedInConnectionStatus =
   | "ERROR";
 
 type LinkedInStatusResponse = {
+  id: string | null;
+  label: string;
   status: LinkedInConnectionStatus;
   linkedInUserUrn: string | null;
   linkedInOrganizationUrn: string | null;
-  connectedAt: string | null; // ISO-8601
+  connectedAt: string | null;
   lastError: string | null;
+  isActive: boolean;
+};
+
+type LinkedInAccountListResponse = {
+  accounts: LinkedInStatusResponse[];
+  maxAccounts: number; // 3
+  activeLinkedInAccountId: string | null;
 };
 
 type LinkedInAuthUrlResponse = {
   authorizationUrl: string;
+  accountId: string | null; // null = nouveau compte
 };
 ```
 
-### 8.3 Endpoints
+### 8.4 Endpoints détaillés
 
-#### `GET /api/linkedin/status`
+#### `GET /api/linkedin/accounts`
 
-| | |
-|--|--|
-| **Auth** | JWT obligatoire |
-| **Succès** | `200` → `LinkedInStatusResponse` |
+Liste des comptes. Afficher `isActive` / radio pour choisir l’actif (via settings).
 
-Afficher selon `status` :
-- `NOT_CONNECTED` → bouton « Connecter LinkedIn »
-- `CONNECTED` → badge vert + URN user + formulaire Page URN + bouton Déconnecter
-- `EXPIRED` / `ERROR` → message + `lastError` + bouton « Reconnecter »
-
-#### `GET /api/linkedin/auth-url`
+#### `POST /api/linkedin/accounts/connect?label=`
 
 | | |
 |--|--|
-| **Auth** | JWT obligatoire |
-| **Succès** | `200` → `{ "authorizationUrl": "https://www.linkedin.com/oauth/v2/authorization?..." }` |
+| **Auth** | JWT |
+| **Succès** | `200` → `LinkedInAuthUrlResponse` |
+| **Erreur** | `409` si déjà 3 comptes ; `500` si Client ID/Secret absents en settings |
 
 ```ts
-async function connectLinkedIn(token: string) {
-  const res = await fetch(`${API_BASE}/api/linkedin/auth-url`, {
+async function addLinkedInAccount(token: string, label?: string) {
+  const q = label ? `?label=${encodeURIComponent(label)}` : "";
+  const res = await fetch(`${API_BASE}/api/linkedin/accounts/connect${q}`, {
+    method: "POST",
     headers: { Authorization: `Bearer ${token}` },
   });
+  if (res.status === 409) throw new Error("Maximum 3 comptes LinkedIn");
   if (!res.ok) throw new Error(await res.text());
   const { authorizationUrl } = await res.json();
-  // Redirection pleine page (recommandé en local) :
   window.location.assign(authorizationUrl);
 }
 ```
 
-#### `PUT /api/linkedin/organization-urn`
+#### `PUT /api/linkedin/accounts/{id}/organization-urn`
 
-| | |
-|--|--|
-| **Auth** | JWT |
-| **Body** | `{ "organizationUrn": "urn:li:organization:123456789" }` |
-| **Succès** | `200` → `LinkedInStatusResponse` |
-| **Erreur** | `400` si l’URN ne commence pas par `urn:li:organization:` |
-
-```ts
-// Validation UI avant envoi
-const URN_RE = /^urn:li:organization:.+/;
-if (!URN_RE.test(value.trim())) {
-  setError("Doit commencer par urn:li:organization:");
-  return;
-}
-```
-
-L’admin récupère l’ID Page dans l’URL admin LinkedIn  
-(`https://www.linkedin.com/company/XXXXX/admin/...` → `urn:li:organization:XXXXX`).
-
-#### `DELETE /api/linkedin/disconnect`
-
-| | |
-|--|--|
-| **Auth** | JWT |
-| **Succès** | `204` (pas de body) |
-
-Puis rappeler `GET /status` → doit être `NOT_CONNECTED`.
+Body `{ "organizationUrn": "urn:li:organization:123456789" }` — doit commencer par `urn:li:organization:`.
 
 #### `GET /api/linkedin/callback` — **ne pas appeler depuis le front**
 
-Public. LinkedIn y redirige le navigateur. Le backend renvoie un **302** vers :
+302 vers `{FRONTEND_URL}/dashboard/linkedin?connected=true|false&error=…`.
 
-| Résultat | URL |
-|----------|-----|
-| OK | `{FRONTEND_URL}/dashboard/linkedin?connected=true` |
-| KO / refus | `{FRONTEND_URL}/dashboard/linkedin?connected=false&error=...` |
-
-`FRONTEND_URL` côté backend = `http://localhost:3000` en local (variable `FRONTEND_URL` / `app.frontend-url`).
-
-### 8.4 Page obligatoire : `/dashboard/linkedin`
-
-Au mount :
+### 8.5 Page `/dashboard/linkedin`
 
 ```ts
 useEffect(() => {
@@ -680,115 +664,59 @@ useEffect(() => {
   const connected = params.get("connected");
   const error = params.get("error");
 
-  if (connected === "true") {
-    toast.success("Compte LinkedIn connecté");
-  } else if (connected === "false") {
+  if (connected === "true") toast.success("Compte LinkedIn connecté");
+  else if (connected === "false") {
     toast.error(error ? decodeURIComponent(error) : "Connexion LinkedIn refusée");
   }
-
   if (connected !== null) {
-    // Évite de re-afficher le toast au F5
     window.history.replaceState({}, "", "/dashboard/linkedin");
   }
-
-  void refreshStatus(); // GET /api/linkedin/status
+  void refreshAccounts(); // GET /api/linkedin/accounts
 }, []);
 ```
 
-Cas d’erreur fréquents dans `error` :
-- `user_cancelled_login` / `access_denied` → l’utilisateur a annulé
-- `missing_code_or_state` / messages OAuth → problème technique
-
-### 8.5 UI suggérée (états)
-
-| Zone | Contenu |
-|------|---------|
-| Header | Titre « LinkedIn » + badge statut |
-| Non connecté | Texte court + CTA « Connecter avec LinkedIn » |
-| Connecté | `linkedInUserUrn`, date `connectedAt`, champ URN Page + Enregistrer, CTA Déconnecter |
-| Erreur | Afficher `lastError` + CTA Reconnecter |
+**UI suggérée** : liste des comptes (label, statut, URN, badge actif), CTA « Ajouter » (disabled si `accounts.length >= maxAccounts`), formulaire URN, supprimer, lien Settings pour Client ID/Secret + compte actif.
 
 **Ne jamais** afficher ni stocker de token LinkedIn côté front.
 
-### 8.6 Popup vs redirection pleine page
+### 8.6 Checklist frontend LinkedIn
 
-| Approche | Avantage | Inconvénient |
-|----------|----------|--------------|
-| `window.location.assign(url)` | Simple, fiable en local | Quitte le dashboard pendant le consent |
-| `window.open(url, "linkedin-oauth", "popup")` | Garde le dashboard ouvert | Faut écouter le retour (polling `status` ou `postMessage`) — plus complexe |
+- [ ] Route `/dashboard/linkedin`
+- [ ] Settings : champs Client ID / Secret LinkedIn + select compte actif
+- [ ] `GET /accounts` + `POST /accounts/connect`
+- [ ] Retour OAuth : toast + refresh liste
+- [ ] URN Page par compte
+- [ ] Max 3 → gérer le `409`
+- [ ] Aucun appel à `/callback`
 
-**Recommandation MVP :** redirection pleine page. Après retour sur `/dashboard/linkedin?connected=...`, l’utilisateur est déjà sur la bonne page.
+### 8.7 Scopes
 
-Si popup plus tard : après redirect backend vers le front, la page popup lit `connected` et fait `window.opener.postMessage(...)` puis `window.close()` ; le parent écoute et rafraîchit `status`.
-
-### 8.7 Checklist frontend LinkedIn
-
-- [ ] Route `/dashboard/linkedin` existe (même sans design final)
-- [ ] `FRONTEND_URL` backend = origine du front (`http://localhost:3000`)
-- [ ] Connexion : `auth-url` → redirect LinkedIn
-- [ ] Retour : lire `connected` / `error`, toast, `replaceState`, `GET status`
-- [ ] Formulaire URN Page avec validation `urn:li:organization:`
-- [ ] Déconnexion : `DELETE` + refresh status
-- [ ] Aucun appel direct à `/api/linkedin/callback`
-
-### 8.8 Scopes actuels (backend)
-
-L’URL d’auth demande : `openid profile email w_organization_social`  
-(`w_organization_social` = publication **en tant que la Page** — produit Community Management / permissions org).  
-Le profil perso n’est **pas** la cible de publication.
+Défaut backend : `w_organization_social r_organization_social` (surchargeable via settings). Publication = **Page org**, pas profil perso.
 
 ---
 
 ## 8bis. Publication LinkedIn — `/api/linkedin/publish-test` & historique
 
-> Publie **uniquement sur la Page entreprise** (`linkedInOrganizationUrn`).  
-> Pas de post sur le compte perso, pas de repost automatique.
+> Publie **uniquement sur la Page** du **compte actif** (`linkedInOrganizationUrn`).
 
-**Prérequis front :**
-1. Connexion OAuth admin (`CONNECTED`)
-2. `PUT /api/linkedin/organization-urn` avec `urn:li:organization:{idPage}`
-3. Compte LinkedIn = admin de cette Page
-4. Scope `w_organization_social` visible dans le portail + reconnexion après activation
+**Prérequis :**
+1. Credentials app en settings
+2. Au moins un compte `CONNECTED` + URN Page
+3. `activeLinkedInAccountId` défini (recommandé)
+4. Scope org + admin de la Page
 
-Si URN Page manquant → `422` avec message clair.
-
-### `POST /api/linkedin/publish-test` (JWT, temporaire)
+### `POST /api/linkedin/publish-test` (JWT)
 
 | Body | Comportement |
 |------|----------------|
-| `{}` ou omis | Génère via IA (`generateDailyTip`) puis publie |
-| `{ "content": "Mon texte…" }` | Publie ce texte tel quel |
+| `{}` ou omis | Génère via IA puis publie |
+| `{ "content": "Mon texte…" }` | Publie tel quel |
 
-**Réponse `200`** (même si LinkedIn a échoué HTTP — alors `status: "FAILED"`) :
-
-```json
-{
-  "id": "...",
-  "content": "...",
-  "aiProvider": "GEMINI",
-  "targetUrn": "urn:li:person:…",
-  "linkedInPostId": "urn:li:share:…",
-  "status": "PUBLISHED",
-  "errorMessage": null,
-  "createdAt": "…",
-  "publishedAt": "…"
-}
-```
-
-`status` : `PENDING` | `PUBLISHED` | `FAILED`
-
-**`422`** si LinkedIn non connecté / token expiré (reconnecter via auth-url).
+**Réponse `200`** (même si LinkedIn a échoué — alors `status: "FAILED"`).
 
 ### `GET /api/linkedin/publications?limit=20` (JWT)
 
-Liste triée du plus récent au plus ancien (max 100).
-
-### UI suggérée
-
-1. Vérifier `GET /api/linkedin/status` → `CONNECTED`
-2. Bouton « Publier un tip test » → `POST /publish-test`
-3. Afficher badge selon `status` + `linkedInPostId` / `errorMessage`
-4. Écran historique → `GET /publications`
+Historique du plus récent au plus ancien.
 
 ---
 
@@ -798,16 +726,13 @@ Liste triée du plus récent au plus ancien (max 100).
 |-------|-----------|
 | Login | `POST /api/auth/login` |
 | Guard / header user | `GET /api/auth/me` |
-| Settings org | `GET` + `PUT /api/settings` |
+| Settings org (+ LinkedIn app + compte actif) | `GET` + `PUT /api/settings` |
 | Dropdowns modèles | `GET /api/settings/llm-models` |
 | Liste abonnés + filtre | `GET /api/subscribers?status=` |
 | Ajout abonné | `POST /api/subscribers` |
 | Suppression | `DELETE /api/subscribers/{id}` |
 | Bouton « Générer un tip » | `POST /api/ai/generate-test` |
-| Connexion LinkedIn | `GET /api/linkedin/auth-url` + page `/dashboard/linkedin` |
-| Statut LinkedIn | `GET /api/linkedin/status` |
-| URN Page | `PUT /api/linkedin/organization-urn` |
-| Déconnexion LinkedIn | `DELETE /api/linkedin/disconnect` |
+| Page comptes LinkedIn | `GET/POST/PUT/DELETE /api/linkedin/accounts…` |
 | Publier (test LinkedIn) | `POST /api/linkedin/publish-test` |
 | Historique LinkedIn records | `GET /api/linkedin/publications?limit=` |
 | Orchestration manuelle | `POST /api/publications/trigger` |

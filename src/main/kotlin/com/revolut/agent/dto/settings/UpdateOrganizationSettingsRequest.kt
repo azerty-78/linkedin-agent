@@ -30,13 +30,29 @@ data class UpdateOrganizationSettingsRequest(
 	val geminiApiKey: String? = null,
 	val linkedInOrganizationId: String? = null,
 
-	/** Client ID LinkedIn Developer App. Null = conserver. */
+	/**
+	 * Client ID LinkedIn Developer App.
+	 * `null` = conserver ; `""` = effacer ; valeur = remplacer.
+	 */
 	val linkedInClientId: String? = null,
-	/** Client secret — null/blank = conserver. */
+	/** Client secret — `null`/blank = conserver (ne jamais renvoyer le masqué). */
 	val linkedInClientSecret: String? = null,
+	/**
+	 * Si `true`, efface le secret LinkedIn stocké (Delete).
+	 * Indépendant de [linkedInClientSecret] pour ne pas casser le pattern UI « champ vide = garder ».
+	 */
+	val clearLinkedInClientSecret: Boolean? = null,
+	/**
+	 * Redirect URI OAuth.
+	 * `null` = conserver ; `""` = revenir au défaut backend ; valeur = remplacer.
+	 */
 	val linkedInRedirectUri: String? = null,
+	/**
+	 * Scopes OAuth.
+	 * `null` = conserver ; `""` = revenir au défaut backend ; valeur = remplacer.
+	 */
 	val linkedInOauthScopes: String? = null,
-	/** Compte LinkedIn à utiliser pour publier. Null = conserver. */
+	/** Compte LinkedIn à utiliser pour publier. Null = conserver ; `""` = aucun. */
 	val activeLinkedInAccountId: String? = null,
 
 	val schedulerEnabled: Boolean? = null,

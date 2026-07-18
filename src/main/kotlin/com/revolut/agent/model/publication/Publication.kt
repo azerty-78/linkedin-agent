@@ -23,4 +23,6 @@ data class Publication(
 	val triggeredBy: String? = null,
 	/** Provider utilisé pour la génération (utile au confirm). */
 	val llmProvider: LlmProvider? = null,
+	/** Instant UTC de publication one-shot (statut `SCHEDULED`). */
+	val scheduledPublishAt: Instant? = null,
 )

@@ -802,12 +802,18 @@ Même shape enrichie, du plus récent au plus ancien.
 
 ---
 
-## 8ter. Orchestration Publications — `POST /api/publications/trigger`
+## 8ter. Orchestration Publications
+
+### Statuts
+
+`PENDING` · `IN_PROGRESS` · `AWAITING_REVIEW` · `SCHEDULED` · `CANCELLED` · `SUCCESS` · `PARTIAL_SUCCESS` · `FAILURE`
+
+Verrou **409** sur `POST /trigger` si un run actif existe (`IN_PROGRESS` | `AWAITING_REVIEW` | `SCHEDULED`). `cancel` libère le verrou.
+
+### `POST /api/publications/trigger`
 
 | | |
 |--|--|
-| **Méthode** | `POST` |
-| **URL** | `/api/publications/trigger` |
 | **Auth** | Bearer |
 | **Succès** | `200` |
 
@@ -816,56 +822,69 @@ Même shape enrichie, du plus récent au plus ancien.
 | Champ | Type | Requis | Notes |
 |-------|------|--------|--------|
 | `llmProvider` | `OPENAI` \| `ANTHROPIC` \| `GEMINI` | Non | Sinon fallback `activeLlmProvider` |
-| `awaitReview` | `boolean` | Non | `true` = pause `AWAITING_REVIEW` (UI manuelle) ; `false`/omis = publier LinkedIn (scheduler) |
+| `awaitReview` | `boolean` | Non | `true` = pause `AWAITING_REVIEW` ; `false`/omis = publier LinkedIn |
 
 ```json
 { "llmProvider": "GEMINI", "awaitReview": true }
 ```
 
-Body omis / `{}` → `activeLlmProvider`, publication directe (comme le scheduler).
-
-**Réponse `200` (avec review)**
-
-```json
-{ "publicationId": "665f…", "status": "AWAITING_REVIEW" }
-```
-
-**Réponse `200` (sans review)** : `status` final `SUCCESS` / `PARTIAL_SUCCESS` / `FAILURE`.
-
-**Erreurs**
-
-| HTTP | Cas |
-|------|-----|
-| `400` | Enum `llmProvider` invalide |
-| `409` | Une publication `IN_PROGRESS` existe déjà |
-| `422` | Clé API du provider manquante — message FR : `Clé API GEMINI manquante. Configurez-la dans Paramètres.` |
+**Erreurs** : `400` enum · `409` run actif · `422` clé LLM manquante (FR).
 
 ### `POST /api/publications/{id}/confirm`
 
-| | |
-|--|--|
-| **Méthode** | `POST` |
-| **URL** | `/api/publications/{id}/confirm` |
-| **Auth** | Bearer |
-| **Succès** | `200` |
+Body `{ "content": "…" }` (1–3000). Prérequis `AWAITING_REVIEW` sinon **409**. Publie LinkedIn.
 
-**Body**
+### `POST /api/publications/{id}/cancel`
 
-| Champ | Type | Requis | Notes |
-|-------|------|--------|--------|
-| `content` | `string` | Oui | Texte final (éditable), 1–3000 chars |
+Sans body. `AWAITING_REVIEW` ou `SCHEDULED` → `CANCELLED`. Sinon **409**.
+
+### `POST /api/publications/{id}/regenerate`
+
+Body optionnel `{ "llmProvider": "OPENAI" }`. Relance le LLM (brief frais), reste `AWAITING_REVIEW`. Prérequis `AWAITING_REVIEW`.
+
+### `POST /api/publications/{id}/schedule`
 
 ```json
-{ "content": "texte final éventuellement édité" }
+{ "content": "texte final", "publishAt": "2026-07-20T09:00:00Z" }
 ```
 
-**Réponse** : `{ "publicationId", "status" }` (SUCCESS / PARTIAL_SUCCESS / FAILURE).
+`publishAt` doit être dans le futur. Statut → `SCHEDULED` ; worker (~1 min) publie à l’heure. Annulable via `cancel`.
 
-**Erreurs** : `400` contenu invalide · `404` inconnu · `409` pas en `AWAITING_REVIEW` / autre run en cours · `422` LinkedIn.
+### `GET /api/publications/readiness`
 
-> Statut `AWAITING_REVIEW` : contenu généré, **pas** de post LinkedIn tant que `confirm` n’est pas appelé. `draftContent` disponible sur `GET /api/publications/{id}`.
+```json
+{
+  "ready": true,
+  "linkedInConnected": true,
+  "linkedInAccountLabel": "Acme Page",
+  "organizationUrn": "urn:li:organization:…",
+  "activeAppConfigured": true,
+  "hasLlmKey": true,
+  "reasons": []
+}
+```
 
-**Providers (Paramètres)** — déjà en place : clés chiffrées + `*KeyMasked`, modèles par provider, `GET /api/settings/llm-models`, `activeLlmProvider` pour le scheduler.
+`reasons` possibles : `LINKEDIN_NOT_CONNECTED`, `ORGANIZATION_URN_MISSING`, `NO_ACTIVE_APP`, `NO_LLM_KEY`, `TOKEN_EXPIRED`.
+
+### `GET /api/publications`
+
+Query : `page`, `size`, `status?`, `triggerType?` (`MANUAL`|`SCHEDULED`), `from?`, `to?` (ISO Instant).
+
+Réponse : `{ "publications": [ PublicationResponse ], "total": N }`.
+
+`PublicationResponse` inclut `draftContent`, `llmProvider`, `scheduledPublishAt`, `steps[]`.
+
+### `GET /api/publications/{id}`
+
+Détail + `draftContent` + steps.
+
+### `GET /api/publications/export`
+
+Query : `format=csv|json` (défaut `csv`) + mêmes filtres que la liste.
+
+CSV : `id,triggeredAt,completedAt,triggerType,status,triggeredBy,contentExcerpt,linkedInPostId`.
+
+**Providers (Paramètres)** — déjà en place : clés chiffrées + `*KeyMasked`, modèles, `activeLlmProvider` pour le scheduler auto.
 
 ---
 
@@ -886,9 +905,11 @@ Body omis / `{}` → `activeLlmProvider`, publication directe (comme le schedule
 | LinkedIn comptes + activate | `GET/POST/PUT/DELETE /api/linkedin/accounts…` |
 | Publier (test LinkedIn) | `POST /api/linkedin/publish-test` |
 | Historique LinkedIn records | `GET /api/linkedin/publications?limit=` |
+| Préflight publications | `GET /api/publications/readiness` |
 | Orchestration manuelle | `POST /api/publications/trigger` `{ llmProvider?, awaitReview? }` |
-| Confirmer relecture | `POST /api/publications/{id}/confirm` `{ content }` |
-| Historique orchestration | `GET /api/publications?page=&size=` |
+| Confirmer / annuler / régénérer / planifier | `POST …/confirm|cancel|regenerate|schedule` |
+| Historique filtré | `GET /api/publications?status&triggerType&from&to&page&size` |
+| Export | `GET /api/publications/export?format=csv\|json` |
 | Détail run | `GET /api/publications/{id}` |
 
 ### Exemple flux settings + génération (tests gratuits)
@@ -923,9 +944,14 @@ Body omis / `{}` → `activeLlmProvider`, publication directe (comme le schedule
 | `DELETE` | `/api/linkedin/disconnect` | Oui | — | `204` |
 | `POST` | `/api/linkedin/publish-test` | Oui | `{ content? }` | `200` (ou `422`) |
 | `GET` | `/api/linkedin/publications` | Oui | query `limit?` | `200` |
+| `GET` | `/api/publications/readiness` | Oui | — | `200` |
+| `GET` | `/api/publications/export` | Oui | `format`, filtres | `200` |
 | `POST` | `/api/publications/trigger` | Oui | `{ llmProvider?, awaitReview? }` | `200` / `409` / `422` |
 | `POST` | `/api/publications/{id}/confirm` | Oui | `{ content }` | `200` / `400` / `404` / `409` / `422` |
-| `GET` | `/api/publications` | Oui | `page`, `size` | `200` |
+| `POST` | `/api/publications/{id}/cancel` | Oui | — | `200` / `404` / `409` |
+| `POST` | `/api/publications/{id}/regenerate` | Oui | `{ llmProvider? }` | `200` / `404` / `409` / `422` |
+| `POST` | `/api/publications/{id}/schedule` | Oui | `{ content, publishAt }` | `200` / `400` / `404` / `409` |
+| `GET` | `/api/publications` | Oui | `page`, `size`, `status?`, `triggerType?`, `from?`, `to?` | `200` |
 | `GET` | `/api/publications/{id}` | Oui | path id | `200` / `404` |
 | `GET` | `/api/linkedin/callback` | Non (LinkedIn only) | `code`/`state`/`error` → 302 front | `302` |
 | `GET` | `/actuator/health` | Non | — | `200` |

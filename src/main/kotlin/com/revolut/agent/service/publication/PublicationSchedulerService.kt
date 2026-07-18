@@ -2,6 +2,7 @@ package com.revolut.agent.service.publication
 
 import com.revolut.agent.dto.settings.OrganizationSettingsResponse
 import com.revolut.agent.model.linkedin.LinkedInConnectionStatus
+import com.revolut.agent.model.publication.ACTIVE_PUBLICATION_STATUSES
 import com.revolut.agent.model.publication.PublicationStatus
 import com.revolut.agent.model.publication.PublicationTriggerType
 import com.revolut.agent.model.settings.LlmProvider
@@ -12,6 +13,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import reactor.core.publisher.Mono
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
 import java.time.ZonedDateTime
@@ -48,6 +50,33 @@ class PublicationSchedulerService(
 				.block()
 		} catch (ex: Exception) {
 			log.error("Scheduler check crashed (isolated): {}", ex.message, ex)
+		}
+	}
+
+	/**
+	 * Worker one-shot : publie les runs `SCHEDULED` dont `scheduledPublishAt` est dû.
+	 */
+	@Scheduled(fixedRate = 60_000)
+	fun processDueOneShotPublications() {
+		try {
+			publicationRepository
+				.findByStatusAndScheduledPublishAtLessThanEqualOrderByScheduledPublishAtAsc(
+					PublicationStatus.SCHEDULED,
+					Instant.now(),
+				)
+				.concatMap { pub ->
+					val id = pub.id ?: return@concatMap Mono.empty()
+					log.info("[Publication {}] one-shot due — executing", id)
+					publicationOrchestratorService.executeScheduledPublication(id)
+						.doOnError { ex ->
+							log.error("[Publication {}] one-shot failed: {}", id, ex.message)
+						}
+						.onErrorResume { Mono.empty() }
+				}
+				.then()
+				.block()
+		} catch (ex: Exception) {
+			log.error("One-shot worker crashed (isolated): {}", ex.message, ex)
 		}
 	}
 
@@ -110,10 +139,10 @@ class PublicationSchedulerService(
 									lastScheduledTriggerDate.set(todayLocal)
 									Mono.empty()
 								} else {
-									publicationRepository.existsByStatus(PublicationStatus.IN_PROGRESS)
+									publicationRepository.existsByStatusIn(ACTIVE_PUBLICATION_STATUSES)
 										.flatMap { running ->
 											if (running) {
-												log.warn("Scheduler check | skipped — publication already IN_PROGRESS")
+												log.warn("Scheduler check | skipped — active publication already exists")
 												Mono.empty()
 											} else {
 												lastScheduledTriggerDate.set(todayLocal)

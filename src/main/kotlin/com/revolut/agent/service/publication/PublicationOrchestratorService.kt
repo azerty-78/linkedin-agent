@@ -6,6 +6,7 @@ import com.revolut.agent.exception.publication.PublicationAlreadyRunningExceptio
 import com.revolut.agent.exception.publication.PublicationInvalidStateException
 import com.revolut.agent.model.linkedin.PublicationRecord
 import com.revolut.agent.model.linkedin.PublicationStatus as LinkedInRecordStatus
+import com.revolut.agent.model.publication.ACTIVE_PUBLICATION_STATUSES
 import com.revolut.agent.model.publication.Publication
 import com.revolut.agent.model.publication.PublicationStatus
 import com.revolut.agent.model.publication.PublicationStepResult
@@ -38,15 +39,9 @@ class PublicationOrchestratorService(
 		llmProviderOverride: LlmProvider? = null,
 		awaitReview: Boolean = false,
 	): Mono<Publication> =
-		publicationRepository.existsByStatus(PublicationStatus.IN_PROGRESS)
-			.flatMap { alreadyRunning ->
-				if (alreadyRunning) {
-					Mono.error(PublicationAlreadyRunningException())
-				} else {
-					aiGenerationService.requireProviderReady(llmProviderOverride)
-						.then(createInitialPublication(triggerType, triggeredBy))
-				}
-			}
+		assertNoActiveRun()
+			.then(aiGenerationService.requireProviderReady(llmProviderOverride))
+			.then(Mono.defer { createInitialPublication(triggerType, triggeredBy) })
 			.flatMap { publication -> runPipeline(publication, llmProviderOverride, awaitReview) }
 
 	/**
@@ -54,13 +49,12 @@ class PublicationOrchestratorService(
 	 * Prérequis : statut `AWAITING_REVIEW`.
 	 */
 	fun confirmPublication(publicationId: String, content: String): Mono<Publication> {
-		val trimmed = content.trim()
-		if (trimmed.isEmpty()) {
-			return Mono.error(IllegalArgumentException("content must not be blank"))
-		}
-		if (trimmed.length > 3000) {
-			return Mono.error(IllegalArgumentException("content must be at most 3000 characters"))
-		}
+		val trimmed = validateContent(content) ?: return Mono.error(
+			IllegalArgumentException(
+				if (content.trim().isEmpty()) "content must not be blank"
+				else "content must be at most 3000 characters",
+			),
+		)
 
 		return publicationRepository.findById(publicationId)
 			.switchIfEmpty(Mono.error(NoSuchElementException("Publication not found: $publicationId")))
@@ -77,34 +71,183 @@ class PublicationOrchestratorService(
 						if (running) {
 							Mono.error(PublicationAlreadyRunningException())
 						} else {
-							val genStep = stepOf(publication, StepName.CONTENT_GENERATION)
-							val updatedGen = genStep.copy(
-								output = trimmed,
-								completedAt = Instant.now(),
-								status = StepStatus.SUCCESS,
-							)
-							val withContent = publication.copy(
-								status = PublicationStatus.IN_PROGRESS,
-								llmProvider = publication.llmProvider,
-								steps = publication.steps.map {
-									if (it.stepName == StepName.CONTENT_GENERATION) updatedGen else it
-								},
-							)
-							publicationRepository.save(withContent)
+							markReadyToPublish(publication, trimmed)
 						}
 					}
 			}
-			.flatMap { inProgress ->
-				val provider = inProgress.llmProvider ?: LlmProvider.GEMINI
-				runLinkedInPublish(inProgress, trimmed, provider)
-					.flatMap { afterLi ->
-						runMailNotImplemented(afterLi)
-							.flatMap { afterMail ->
-								val liOk = stepOf(afterMail, StepName.LINKEDIN_PUBLISH).status == StepStatus.SUCCESS
-								val global =
-									if (liOk) PublicationStatus.SUCCESS else PublicationStatus.PARTIAL_SUCCESS
-								finalizeRun(afterMail, global)
-							}
+			.flatMap { inProgress -> publishLinkedInAndFinalize(inProgress, trimmed) }
+	}
+
+	/**
+	 * Annule un brouillon en relecture ou un one-shot encore planifié.
+	 */
+	fun cancelPublication(publicationId: String): Mono<Publication> =
+		publicationRepository.findById(publicationId)
+			.switchIfEmpty(Mono.error(NoSuchElementException("Publication not found: $publicationId")))
+			.flatMap { publication ->
+				when (publication.status) {
+					PublicationStatus.AWAITING_REVIEW, PublicationStatus.SCHEDULED ->
+						publicationRepository.save(
+							publication.copy(
+								status = PublicationStatus.CANCELLED,
+								completedAt = Instant.now(),
+								scheduledPublishAt = null,
+							),
+						).doOnSuccess { pub ->
+							log.info("[Publication {}] cancelled (was {})", pub?.id, publication.status)
+						}
+					else -> Mono.error(
+						PublicationInvalidStateException(
+							"Publication must be AWAITING_REVIEW or SCHEDULED to cancel (current=${publication.status})",
+						),
+					)
+				}
+			}
+
+	/**
+	 * Régénère le draft via LLM ; reste en `AWAITING_REVIEW`.
+	 */
+	fun regeneratePublication(
+		publicationId: String,
+		llmProviderOverride: LlmProvider? = null,
+	): Mono<Publication> =
+		publicationRepository.findById(publicationId)
+			.switchIfEmpty(Mono.error(NoSuchElementException("Publication not found: $publicationId")))
+			.flatMap { publication ->
+				if (publication.status != PublicationStatus.AWAITING_REVIEW) {
+					return@flatMap Mono.error(
+						PublicationInvalidStateException(
+							"Publication must be AWAITING_REVIEW to regenerate (current=${publication.status})",
+						),
+					)
+				}
+				aiGenerationService.requireProviderReady(llmProviderOverride)
+					.then(runContentGeneration(publication, llmProviderOverride))
+					.flatMap { genResult ->
+						if (stepOf(genResult.publication, StepName.CONTENT_GENERATION).status != StepStatus.SUCCESS) {
+							finalizeRun(genResult.publication, PublicationStatus.FAILURE)
+						} else {
+							pauseForReview(genResult.publication, genResult.provider!!)
+						}
+					}
+			}
+
+	/**
+	 * Planifie une publication one-shot à [publishAt] (UTC).
+	 */
+	fun schedulePublication(
+		publicationId: String,
+		content: String,
+		publishAt: Instant,
+	): Mono<Publication> {
+		val trimmed = validateContent(content) ?: return Mono.error(
+			IllegalArgumentException(
+				if (content.trim().isEmpty()) "content must not be blank"
+				else "content must be at most 3000 characters",
+			),
+		)
+		if (!publishAt.isAfter(Instant.now())) {
+			return Mono.error(IllegalArgumentException("publishAt must be in the future"))
+		}
+
+		return publicationRepository.findById(publicationId)
+			.switchIfEmpty(Mono.error(NoSuchElementException("Publication not found: $publicationId")))
+			.flatMap { publication ->
+				if (publication.status != PublicationStatus.AWAITING_REVIEW) {
+					return@flatMap Mono.error(
+						PublicationInvalidStateException(
+							"Publication must be AWAITING_REVIEW to schedule (current=${publication.status})",
+						),
+					)
+				}
+				val genStep = stepOf(publication, StepName.CONTENT_GENERATION)
+				val updatedGen = genStep.copy(
+					output = trimmed,
+					completedAt = Instant.now(),
+					status = StepStatus.SUCCESS,
+				)
+				publicationRepository.save(
+					publication.copy(
+						status = PublicationStatus.SCHEDULED,
+						scheduledPublishAt = publishAt,
+						completedAt = null,
+						steps = publication.steps.map {
+							if (it.stepName == StepName.CONTENT_GENERATION) updatedGen else it
+						},
+					),
+				).doOnSuccess { pub ->
+					log.info(
+						"[Publication {}] scheduled one-shot | publishAt={}",
+						pub?.id,
+						publishAt,
+					)
+				}
+			}
+	}
+
+	/**
+	 * Exécute un one-shot dû (statut `SCHEDULED`, `scheduledPublishAt` ≤ now).
+	 */
+	fun executeScheduledPublication(publicationId: String): Mono<Publication> =
+		publicationRepository.findById(publicationId)
+			.switchIfEmpty(Mono.error(NoSuchElementException("Publication not found: $publicationId")))
+			.flatMap { publication ->
+				if (publication.status != PublicationStatus.SCHEDULED) {
+					return@flatMap Mono.error(
+						PublicationInvalidStateException(
+							"Publication must be SCHEDULED to execute (current=${publication.status})",
+						),
+					)
+				}
+				val content = stepOf(publication, StepName.CONTENT_GENERATION).output?.trim().orEmpty()
+				if (content.isEmpty()) {
+					return@flatMap Mono.error(IllegalStateException("Scheduled publication has empty content"))
+				}
+				markReadyToPublish(publication.copy(scheduledPublishAt = null), content)
+					.flatMap { inProgress -> publishLinkedInAndFinalize(inProgress, content) }
+			}
+
+	private fun assertNoActiveRun(): Mono<Void> =
+		publicationRepository.existsByStatusIn(ACTIVE_PUBLICATION_STATUSES)
+			.flatMap { active ->
+				if (active) Mono.error(PublicationAlreadyRunningException())
+				else Mono.empty()
+			}
+
+	private fun validateContent(content: String): String? {
+		val trimmed = content.trim()
+		if (trimmed.isEmpty() || trimmed.length > 3000) return null
+		return trimmed
+	}
+
+	private fun markReadyToPublish(publication: Publication, content: String): Mono<Publication> {
+		val genStep = stepOf(publication, StepName.CONTENT_GENERATION)
+		val updatedGen = genStep.copy(
+			output = content,
+			completedAt = Instant.now(),
+			status = StepStatus.SUCCESS,
+		)
+		return publicationRepository.save(
+			publication.copy(
+				status = PublicationStatus.IN_PROGRESS,
+				scheduledPublishAt = null,
+				steps = publication.steps.map {
+					if (it.stepName == StepName.CONTENT_GENERATION) updatedGen else it
+				},
+			),
+		)
+	}
+
+	private fun publishLinkedInAndFinalize(publication: Publication, content: String): Mono<Publication> {
+		val provider = publication.llmProvider ?: LlmProvider.GEMINI
+		return runLinkedInPublish(publication, content, provider)
+			.flatMap { afterLi ->
+				runMailNotImplemented(afterLi)
+					.flatMap { afterMail ->
+						val liOk = stepOf(afterMail, StepName.LINKEDIN_PUBLISH).status == StepStatus.SUCCESS
+						val global =
+							if (liOk) PublicationStatus.SUCCESS else PublicationStatus.PARTIAL_SUCCESS
+						finalizeRun(afterMail, global)
 					}
 			}
 	}

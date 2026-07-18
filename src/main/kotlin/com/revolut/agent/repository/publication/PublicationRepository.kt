@@ -14,6 +14,13 @@ interface PublicationRepository : ReactiveMongoRepository<Publication, String> {
 
 	fun existsByStatus(status: PublicationStatus): Mono<Boolean>
 
+	fun existsByStatusIn(statuses: Collection<PublicationStatus>): Mono<Boolean>
+
+	fun findByStatusAndScheduledPublishAtLessThanEqualOrderByScheduledPublishAtAsc(
+		status: PublicationStatus,
+		publishAt: Instant,
+	): Flux<Publication>
+
 	fun existsByTriggerTypeAndStatusInAndTriggeredAtGreaterThanEqualAndTriggeredAtLessThan(
 		triggerType: PublicationTriggerType,
 		statuses: Collection<PublicationStatus>,

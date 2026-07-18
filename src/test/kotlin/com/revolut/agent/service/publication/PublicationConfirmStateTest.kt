@@ -89,4 +89,10 @@ class PublicationConfirmStateTest {
 	fun `awaiting review status value exists`() {
 		assertEquals("AWAITING_REVIEW", PublicationStatus.AWAITING_REVIEW.name)
 	}
+
+	@Test
+	fun `cancelled and scheduled status values exist`() {
+		assertEquals("CANCELLED", PublicationStatus.CANCELLED.name)
+		assertEquals("SCHEDULED", PublicationStatus.SCHEDULED.name)
+	}
 }

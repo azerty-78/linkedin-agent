@@ -29,6 +29,7 @@ data class PublicationResponse(
 	/** Texte généré (copie de CONTENT_GENERATION.output) pour la relecture UI. */
 	val draftContent: String? = null,
 	val llmProvider: LlmProvider? = null,
+	val scheduledPublishAt: Instant? = null,
 )
 
 data class PublicationListResponse(
@@ -60,4 +61,30 @@ data class ConfirmPublicationRequest(
 data class ConfirmPublicationResponse(
 	val publicationId: String,
 	val status: PublicationStatus,
+)
+
+data class RegeneratePublicationRequest(
+	val llmProvider: LlmProvider? = null,
+)
+
+data class SchedulePublicationRequest(
+	@field:NotBlank(message = "content is required")
+	@field:Size(max = 3000, message = "content must be at most 3000 characters")
+	val content: String,
+	val publishAt: Instant,
+)
+
+data class PublicationActionResponse(
+	val publicationId: String,
+	val status: PublicationStatus,
+)
+
+data class PublicationReadinessResponse(
+	val ready: Boolean,
+	val linkedInConnected: Boolean,
+	val linkedInAccountLabel: String?,
+	val organizationUrn: String?,
+	val activeAppConfigured: Boolean,
+	val hasLlmKey: Boolean,
+	val reasons: List<String>,
 )

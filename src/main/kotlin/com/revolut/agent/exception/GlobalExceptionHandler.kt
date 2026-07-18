@@ -5,6 +5,7 @@ import com.revolut.agent.exception.auth.ProfileConflictException
 import com.revolut.agent.exception.linkedin.LinkedInAccountLimitException
 import com.revolut.agent.exception.linkedin.LinkedInPublishingException
 import com.revolut.agent.exception.publication.PublicationAlreadyRunningException
+import com.revolut.agent.exception.publication.PublicationInvalidStateException
 import com.revolut.agent.service.linkedin.LinkedInOAuthException
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -42,15 +43,13 @@ class GlobalExceptionHandler {
 				),
 		)
 
-	@ExceptionHandler(PublicationAlreadyRunningException::class)
-	fun handlePublicationAlreadyRunning(
-		ex: PublicationAlreadyRunningException,
-	): Mono<ResponseEntity<Map<String, Any>>> =
+	@ExceptionHandler(PublicationAlreadyRunningException::class, PublicationInvalidStateException::class)
+	fun handlePublicationConflict(ex: RuntimeException): Mono<ResponseEntity<Map<String, Any>>> =
 		Mono.just(
 			ResponseEntity.status(HttpStatus.CONFLICT)
 				.body(
 					mapOf(
-						"error" to (ex.message ?: "Publication already running"),
+						"error" to (ex.message ?: "Publication conflict"),
 						"status" to 409,
 					),
 				),

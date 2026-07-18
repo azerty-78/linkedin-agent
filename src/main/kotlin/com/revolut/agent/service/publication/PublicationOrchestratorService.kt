@@ -3,6 +3,7 @@ package com.revolut.agent.service.publication
 import com.revolut.agent.exception.ai.AiGenerationException
 import com.revolut.agent.exception.linkedin.LinkedInPublishingException
 import com.revolut.agent.exception.publication.PublicationAlreadyRunningException
+import com.revolut.agent.exception.publication.PublicationInvalidStateException
 import com.revolut.agent.model.linkedin.PublicationRecord
 import com.revolut.agent.model.linkedin.PublicationStatus as LinkedInRecordStatus
 import com.revolut.agent.model.publication.Publication
@@ -35,6 +36,7 @@ class PublicationOrchestratorService(
 		triggerType: PublicationTriggerType,
 		triggeredBy: String?,
 		llmProviderOverride: LlmProvider? = null,
+		awaitReview: Boolean = false,
 	): Mono<Publication> =
 		publicationRepository.existsByStatus(PublicationStatus.IN_PROGRESS)
 			.flatMap { alreadyRunning ->
@@ -45,7 +47,67 @@ class PublicationOrchestratorService(
 						.then(createInitialPublication(triggerType, triggeredBy))
 				}
 			}
-			.flatMap { publication -> runPipeline(publication, llmProviderOverride) }
+			.flatMap { publication -> runPipeline(publication, llmProviderOverride, awaitReview) }
+
+	/**
+	 * Publie LinkedIn après relecture humaine.
+	 * Prérequis : statut `AWAITING_REVIEW`.
+	 */
+	fun confirmPublication(publicationId: String, content: String): Mono<Publication> {
+		val trimmed = content.trim()
+		if (trimmed.isEmpty()) {
+			return Mono.error(IllegalArgumentException("content must not be blank"))
+		}
+		if (trimmed.length > 3000) {
+			return Mono.error(IllegalArgumentException("content must be at most 3000 characters"))
+		}
+
+		return publicationRepository.findById(publicationId)
+			.switchIfEmpty(Mono.error(NoSuchElementException("Publication not found: $publicationId")))
+			.flatMap { publication ->
+				if (publication.status != PublicationStatus.AWAITING_REVIEW) {
+					return@flatMap Mono.error(
+						PublicationInvalidStateException(
+							"Publication must be AWAITING_REVIEW to confirm (current=${publication.status})",
+						),
+					)
+				}
+				publicationRepository.existsByStatus(PublicationStatus.IN_PROGRESS)
+					.flatMap { running ->
+						if (running) {
+							Mono.error(PublicationAlreadyRunningException())
+						} else {
+							val genStep = stepOf(publication, StepName.CONTENT_GENERATION)
+							val updatedGen = genStep.copy(
+								output = trimmed,
+								completedAt = Instant.now(),
+								status = StepStatus.SUCCESS,
+							)
+							val withContent = publication.copy(
+								status = PublicationStatus.IN_PROGRESS,
+								llmProvider = publication.llmProvider,
+								steps = publication.steps.map {
+									if (it.stepName == StepName.CONTENT_GENERATION) updatedGen else it
+								},
+							)
+							publicationRepository.save(withContent)
+						}
+					}
+			}
+			.flatMap { inProgress ->
+				val provider = inProgress.llmProvider ?: LlmProvider.GEMINI
+				runLinkedInPublish(inProgress, trimmed, provider)
+					.flatMap { afterLi ->
+						runMailNotImplemented(afterLi)
+							.flatMap { afterMail ->
+								val liOk = stepOf(afterMail, StepName.LINKEDIN_PUBLISH).status == StepStatus.SUCCESS
+								val global =
+									if (liOk) PublicationStatus.SUCCESS else PublicationStatus.PARTIAL_SUCCESS
+								finalizeRun(afterMail, global)
+							}
+					}
+			}
+	}
 
 	private fun createInitialPublication(
 		triggerType: PublicationTriggerType,
@@ -77,12 +139,15 @@ class PublicationOrchestratorService(
 	private fun runPipeline(
 		publication: Publication,
 		llmProviderOverride: LlmProvider?,
+		awaitReview: Boolean,
 	): Mono<Publication> {
 		val id = requireNotNull(publication.id)
 		return runContentGeneration(publication, llmProviderOverride)
 			.flatMap { genResult ->
 				if (genResult.publication.let { stepOf(it, StepName.CONTENT_GENERATION).status } != StepStatus.SUCCESS) {
 					finalizeRun(genResult.publication, PublicationStatus.FAILURE)
+				} else if (awaitReview) {
+					pauseForReview(genResult.publication, genResult.provider!!)
 				} else {
 					runLinkedInPublish(genResult.publication, genResult.content!!, genResult.provider!!)
 						.flatMap { afterLi ->
@@ -108,6 +173,21 @@ class PublicationOrchestratorService(
 					.switchIfEmpty(Mono.error(ex))
 			}
 	}
+
+	private fun pauseForReview(publication: Publication, provider: LlmProvider): Mono<Publication> =
+		publicationRepository.save(
+			publication.copy(
+				status = PublicationStatus.AWAITING_REVIEW,
+				llmProvider = provider,
+				completedAt = null,
+			),
+		).doOnSuccess { pub ->
+			log.info(
+				"[Publication {}] paused for review | status=AWAITING_REVIEW | provider={}",
+				pub?.id,
+				provider,
+			)
+		}
 
 	private data class GenerationResult(
 		val publication: Publication,
@@ -144,7 +224,7 @@ class PublicationOrchestratorService(
 						generated.content.length,
 					)
 					saveStep(
-						inProgress,
+						inProgress.copy(llmProvider = generated.provider),
 						StepName.CONTENT_GENERATION,
 						PublicationStepResult(
 							stepName = StepName.CONTENT_GENERATION,

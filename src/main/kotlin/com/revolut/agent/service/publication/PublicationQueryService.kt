@@ -1,11 +1,13 @@
 package com.revolut.agent.service.publication
 
+import com.revolut.agent.dto.publication.ConfirmPublicationResponse
 import com.revolut.agent.dto.publication.PublicationListResponse
 import com.revolut.agent.dto.publication.PublicationResponse
 import com.revolut.agent.dto.publication.PublicationStepResponse
 import com.revolut.agent.dto.publication.TriggerPublicationResponse
 import com.revolut.agent.model.publication.Publication
 import com.revolut.agent.model.publication.PublicationTriggerType
+import com.revolut.agent.model.publication.StepName
 import com.revolut.agent.model.settings.LlmProvider
 import com.revolut.agent.repository.publication.PublicationRepository
 import org.springframework.stereotype.Service
@@ -20,17 +22,31 @@ class PublicationQueryService(
 	fun triggerManual(
 		adminEmail: String,
 		llmProvider: LlmProvider? = null,
+		awaitReview: Boolean = false,
 	): Mono<TriggerPublicationResponse> =
 		publicationOrchestratorService.orchestrate(
 			triggerType = PublicationTriggerType.MANUAL,
 			triggeredBy = adminEmail,
 			llmProviderOverride = llmProvider,
+			awaitReview = awaitReview,
 		).map { pub ->
 			TriggerPublicationResponse(
 				publicationId = requireNotNull(pub.id),
 				status = pub.status,
 			)
 		}
+
+	fun confirm(
+		publicationId: String,
+		content: String,
+	): Mono<ConfirmPublicationResponse> =
+		publicationOrchestratorService.confirmPublication(publicationId, content)
+			.map { pub ->
+				ConfirmPublicationResponse(
+					publicationId = requireNotNull(pub.id),
+					status = pub.status,
+				)
+			}
 
 	fun getById(id: String): Mono<PublicationResponse> =
 		publicationRepository.findById(id)
@@ -57,8 +73,11 @@ class PublicationQueryService(
 			}
 	}
 
-	private fun toResponse(publication: Publication): PublicationResponse =
-		PublicationResponse(
+	private fun toResponse(publication: Publication): PublicationResponse {
+		val draft = publication.steps
+			.firstOrNull { it.stepName == StepName.CONTENT_GENERATION }
+			?.output
+		return PublicationResponse(
 			id = publication.id,
 			triggerType = publication.triggerType,
 			status = publication.status,
@@ -75,5 +94,8 @@ class PublicationQueryService(
 				)
 			},
 			triggeredBy = publication.triggeredBy,
+			draftContent = draft,
+			llmProvider = publication.llmProvider,
 		)
+	}
 }

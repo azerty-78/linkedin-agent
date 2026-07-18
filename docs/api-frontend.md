@@ -815,21 +815,22 @@ Même shape enrichie, du plus récent au plus ancien.
 
 | Champ | Type | Requis | Notes |
 |-------|------|--------|--------|
-| `llmProvider` | `OPENAI` \| `ANTHROPIC` \| `GEMINI` | Non | Sinon fallback `activeLlmProvider` (settings / scheduler) |
+| `llmProvider` | `OPENAI` \| `ANTHROPIC` \| `GEMINI` | Non | Sinon fallback `activeLlmProvider` |
+| `awaitReview` | `boolean` | Non | `true` = pause `AWAITING_REVIEW` (UI manuelle) ; `false`/omis = publier LinkedIn (scheduler) |
 
 ```json
-{ "llmProvider": "GEMINI" }
+{ "llmProvider": "GEMINI", "awaitReview": true }
 ```
 
-Body omis / `{}` → utilise `activeLlmProvider`.
+Body omis / `{}` → `activeLlmProvider`, publication directe (comme le scheduler).
 
-**Réponse `200`**
+**Réponse `200` (avec review)**
 
 ```json
-{ "publicationId": "665f…", "status": "SUCCESS" }
+{ "publicationId": "665f…", "status": "AWAITING_REVIEW" }
 ```
 
-(`status` = statut final du run : `SUCCESS` / `PARTIAL_SUCCESS` / `FAILURE` / …)
+**Réponse `200` (sans review)** : `status` final `SUCCESS` / `PARTIAL_SUCCESS` / `FAILURE`.
 
 **Erreurs**
 
@@ -839,7 +840,30 @@ Body omis / `{}` → utilise `activeLlmProvider`.
 | `409` | Une publication `IN_PROGRESS` existe déjà |
 | `422` | Clé API du provider manquante — message FR : `Clé API GEMINI manquante. Configurez-la dans Paramètres.` |
 
-> `awaitReview` / relecture humaine → **étape 7** (pas encore actif ici).
+### `POST /api/publications/{id}/confirm`
+
+| | |
+|--|--|
+| **Méthode** | `POST` |
+| **URL** | `/api/publications/{id}/confirm` |
+| **Auth** | Bearer |
+| **Succès** | `200` |
+
+**Body**
+
+| Champ | Type | Requis | Notes |
+|-------|------|--------|--------|
+| `content` | `string` | Oui | Texte final (éditable), 1–3000 chars |
+
+```json
+{ "content": "texte final éventuellement édité" }
+```
+
+**Réponse** : `{ "publicationId", "status" }` (SUCCESS / PARTIAL_SUCCESS / FAILURE).
+
+**Erreurs** : `400` contenu invalide · `404` inconnu · `409` pas en `AWAITING_REVIEW` / autre run en cours · `422` LinkedIn.
+
+> Statut `AWAITING_REVIEW` : contenu généré, **pas** de post LinkedIn tant que `confirm` n’est pas appelé. `draftContent` disponible sur `GET /api/publications/{id}`.
 
 **Providers (Paramètres)** — déjà en place : clés chiffrées + `*KeyMasked`, modèles par provider, `GET /api/settings/llm-models`, `activeLlmProvider` pour le scheduler.
 
@@ -862,7 +886,8 @@ Body omis / `{}` → utilise `activeLlmProvider`.
 | LinkedIn comptes + activate | `GET/POST/PUT/DELETE /api/linkedin/accounts…` |
 | Publier (test LinkedIn) | `POST /api/linkedin/publish-test` |
 | Historique LinkedIn records | `GET /api/linkedin/publications?limit=` |
-| Orchestration manuelle | `POST /api/publications/trigger` `{ llmProvider? }` |
+| Orchestration manuelle | `POST /api/publications/trigger` `{ llmProvider?, awaitReview? }` |
+| Confirmer relecture | `POST /api/publications/{id}/confirm` `{ content }` |
 | Historique orchestration | `GET /api/publications?page=&size=` |
 | Détail run | `GET /api/publications/{id}` |
 
@@ -898,7 +923,8 @@ Body omis / `{}` → utilise `activeLlmProvider`.
 | `DELETE` | `/api/linkedin/disconnect` | Oui | — | `204` |
 | `POST` | `/api/linkedin/publish-test` | Oui | `{ content? }` | `200` (ou `422`) |
 | `GET` | `/api/linkedin/publications` | Oui | query `limit?` | `200` |
-| `POST` | `/api/publications/trigger` | Oui | `{ llmProvider? }` | `200` / `409` / `422` |
+| `POST` | `/api/publications/trigger` | Oui | `{ llmProvider?, awaitReview? }` | `200` / `409` / `422` |
+| `POST` | `/api/publications/{id}/confirm` | Oui | `{ content }` | `200` / `400` / `404` / `409` / `422` |
 | `GET` | `/api/publications` | Oui | `page`, `size` | `200` |
 | `GET` | `/api/publications/{id}` | Oui | path id | `200` / `404` |
 | `GET` | `/api/linkedin/callback` | Non (LinkedIn only) | `code`/`state`/`error` → 302 front | `302` |

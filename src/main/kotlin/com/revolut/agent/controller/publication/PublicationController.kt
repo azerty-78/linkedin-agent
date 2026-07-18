@@ -1,10 +1,13 @@
 package com.revolut.agent.controller.publication
 
+import com.revolut.agent.dto.publication.ConfirmPublicationRequest
+import com.revolut.agent.dto.publication.ConfirmPublicationResponse
 import com.revolut.agent.dto.publication.PublicationListResponse
 import com.revolut.agent.dto.publication.PublicationResponse
 import com.revolut.agent.dto.publication.TriggerPublicationRequest
 import com.revolut.agent.dto.publication.TriggerPublicationResponse
 import com.revolut.agent.service.publication.PublicationQueryService
+import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
 import org.springframework.security.core.Authentication
 import org.springframework.web.bind.annotation.GetMapping
@@ -32,8 +35,19 @@ class PublicationController(
 			publicationQueryService.triggerManual(
 				adminEmail = auth.name,
 				llmProvider = request?.llmProvider,
+				awaitReview = request?.awaitReview == true,
 			)
 		}
+
+	@PostMapping("/{id}/confirm")
+	fun confirm(
+		@PathVariable id: String,
+		@Valid @RequestBody body: ConfirmPublicationRequest,
+	): Mono<ConfirmPublicationResponse> =
+		publicationQueryService.confirm(id, body.content)
+			.onErrorMap(NoSuchElementException::class.java) {
+				ResponseStatusException(HttpStatus.NOT_FOUND, it.message)
+			}
 
 	@GetMapping
 	fun list(

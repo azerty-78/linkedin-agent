@@ -78,4 +78,25 @@ class UserSessionService(
 
 	fun revokeByJti(jti: String): Mono<Void> =
 		userSessionRepository.deleteByJti(jti)
+
+	/** Updates session email when the user changes their login email. */
+	fun renameUserEmail(oldEmail: String, newEmail: String): Mono<Void> {
+		if (oldEmail == newEmail) {
+			return Mono.empty()
+		}
+		return userSessionRepository.findAllByUserEmailOrderByCreatedAtAsc(oldEmail)
+			.flatMap { session ->
+				userSessionRepository.save(session.copy(userEmail = newEmail))
+			}
+			.then()
+	}
+
+	/** Revokes all sessions for [userEmail] except optionally [keepJti]. */
+	fun revokeOtherSessions(userEmail: String, keepJti: String?): Mono<Void> =
+		userSessionRepository.findAllByUserEmailOrderByCreatedAtAsc(userEmail)
+			.filter { session -> keepJti == null || session.jti != keepJti }
+			.flatMap { session ->
+				session.id?.let { userSessionRepository.deleteById(it) } ?: Mono.empty()
+			}
+			.then()
 }

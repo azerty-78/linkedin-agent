@@ -1,6 +1,7 @@
 package com.revolut.agent.exception
 
 import com.revolut.agent.exception.ai.AiGenerationException
+import com.revolut.agent.exception.auth.ProfileConflictException
 import com.revolut.agent.exception.linkedin.LinkedInAccountLimitException
 import com.revolut.agent.exception.linkedin.LinkedInPublishingException
 import com.revolut.agent.exception.publication.PublicationAlreadyRunningException
@@ -16,6 +17,18 @@ import reactor.core.publisher.Mono
 
 @RestControllerAdvice
 class GlobalExceptionHandler {
+
+	@ExceptionHandler(ProfileConflictException::class)
+	fun handleProfileConflict(ex: ProfileConflictException): Mono<ResponseEntity<Map<String, Any>>> =
+		Mono.just(
+			ResponseEntity.status(HttpStatus.CONFLICT)
+				.body(
+					mapOf(
+						"error" to (ex.message ?: "Conflict"),
+						"status" to 409,
+					),
+				),
+		)
 
 	@ExceptionHandler(LinkedInAccountLimitException::class)
 	fun handleLinkedInAccountLimit(ex: LinkedInAccountLimitException): Mono<ResponseEntity<Map<String, Any>>> =

@@ -43,9 +43,10 @@ class JwtAuthenticationWebFilter(
 					chain.filter(exchange)
 				} else {
 					val email = jwtService.extractEmail(token)
+					val userId = jwtService.extractUserId(token)
 					val authentication = UsernamePasswordAuthenticationToken(
 						email,
-						null,
+						userId,
 						listOf(SimpleGrantedAuthority("ROLE_ADMIN")),
 					)
 					RequestLogSupport.capturePrincipal(exchange, authentication)

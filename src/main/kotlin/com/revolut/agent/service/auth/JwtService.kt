@@ -40,6 +40,13 @@ class JwtService(
 	fun extractEmail(token: String): String =
 		extractAllClaims(token).subject
 
+	fun extractUserId(token: String): String? =
+		try {
+			extractAllClaims(token)[CLAIM_UID]?.toString()?.takeIf { it.isNotBlank() }
+		} catch (_: Exception) {
+			null
+		}
+
 	fun extractJti(token: String): String? =
 		try {
 			extractAllClaims(token).id?.takeIf { it.isNotBlank() }
@@ -54,13 +61,15 @@ class JwtService(
 		val now = Date()
 		val expiry = Date(now.time + expirationMs)
 
-		return Jwts.builder()
+		val builder = Jwts.builder()
 			.id(jti)
 			.subject(user.email)
 			.claim(CLAIM_ROLE, user.role.name)
 			.claim(CLAIM_TYPE, type)
 			.issuedAt(now)
 			.expiration(expiry)
+		user.id?.takeIf { it.isNotBlank() }?.let { builder.claim(CLAIM_UID, it) }
+		return builder
 			.signWith(signingKey, Jwts.SIG.HS256)
 			.compact()
 	}
@@ -75,6 +84,7 @@ class JwtService(
 	companion object {
 		private const val CLAIM_ROLE = "role"
 		private const val CLAIM_TYPE = "type"
+		private const val CLAIM_UID = "uid"
 		private const val TOKEN_TYPE_ACCESS = "access"
 		private const val TOKEN_TYPE_REFRESH = "refresh"
 		private const val REFRESH_TOKEN_EXPIRATION_MS = 604_800_000L // 7 days

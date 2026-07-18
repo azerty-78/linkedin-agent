@@ -55,11 +55,13 @@ Fichier : `config/SecurityConfig.kt`, `config/JwtAuthenticationWebFilter.kt`
 
 Au démarrage (`AdminBootstrapRunner`) :
 
-- Si la collection MongoDB `app_users` est **vide** → création d’un `AppUser` avec `role = ADMIN`
-- Email / mot de passe issus de `app.bootstrap.admin-email` / `app.bootstrap.admin-password`  
-  (variables d’env : `ADMIN_EMAIL`, `ADMIN_PASSWORD`)
+- Cherche un user `role = ADMIN` (ou l’email seed) en base
+- **S’il n’existe pas** → création avec `ADMIN_EMAIL` / `ADMIN_PASSWORD` / `ADMIN_USERNAME` (optionnel, sinon partie locale de l’email)
 - Mot de passe stocké en **BCrypt**
-- Si des utilisateurs existent déjà → **aucun** nouveau compte n’est créé
+- **S’il existe déjà** → **ne rien écraser** (ni MDP, ni email, ni username) — log `Admin user already present — skip seed`
+- Backfill `username` si documents anciens sans ce champ (sans toucher au MDP)
+
+`ADMIN_*` / `app.bootstrap.*` = **fallback de création initiale uniquement**. Après un changement de MDP via Profil, **seul le hash en DB compte**.
 
 Pour forcer un nouvel admin : vider `app_users` puis redémarrer l’application.
 
@@ -90,16 +92,20 @@ Client                     API                         MongoDB
 | Access | `jwt.expiration` (défaut 24 h) | Header `Authorization: Bearer …` |
 | Refresh | 7 jours (hardcodé) | Émis au login ; **pas d’endpoint refresh** pour l’instant |
 
-Claims typiques : `sub` (email), `role`, `type` (`access` | `refresh`). Algorithme : HS256 (`jwt.secret`).
+Claims typiques : `sub` (email), `uid` (id Mongo), `role`, `type` (`access` | `refresh`), `jti`. Algorithme : HS256 (`jwt.secret`).
 
 ### 3.3 Endpoints auth
 
 | Méthode | Chemin | Auth | Description |
 |---------|--------|------|-------------|
-| `POST` | `/api/auth/login` | Non | Body `{ "email", "password" }` → tokens |
-| `GET` | `/api/auth/me` | Oui | Email + rôle du principal |
+| `POST` | `/api/auth/login` | Non | Body `{ "email", "password" }` → tokens (auth **contre la DB**) |
+| `GET` | `/api/auth/me` | Oui | Profil : `id`, `email`, `username`, `role`, `createdAt`, `updatedAt` |
+| `PUT` | `/api/auth/me` | Oui | Mise à jour `username` + `email` (409 si conflit) |
+| `POST` | `/api/auth/change-password` | Oui | `{ currentPassword, newPassword }` → `204` |
+| `POST` | `/api/auth/logout` | Oui | Révoque la session courante (`204`) |
 
-Erreurs auth classiques → HTTP **401** (`BadCredentialsException` / `AuthenticationException`).
+Erreurs auth classiques → HTTP **401** (`BadCredentialsException` / `AuthenticationException`).  
+Conflit profil → HTTP **409** (`ProfileConflictException`).
 
 ---
 
@@ -185,6 +191,9 @@ Les clés runtime viennent de Mongo (chiffrées), **pas** des placeholders `spri
 |---------|--------|------|---------------------|
 | `POST` | `/api/auth/login` | Non | 200 |
 | `GET` | `/api/auth/me` | Oui | 200 |
+| `PUT` | `/api/auth/me` | Oui | 200 |
+| `POST` | `/api/auth/change-password` | Oui | 204 |
+| `POST` | `/api/auth/logout` | Oui | 204 |
 | `GET` | `/api/settings` | Oui | 200 |
 | `GET` | `/api/settings/llm-models` | Oui | 200 |
 | `PUT` | `/api/settings` | Oui | 200 |
@@ -205,7 +214,7 @@ Base : `linkedin_agent_db`
 
 | Collection | Modèle | Points clés |
 |------------|--------|-------------|
-| `app_users` | `AppUser` | `email` unique, `passwordHash`, `role`, `lastLoginAt` |
+| `app_users` | `AppUser` | `email` unique, `username` unique, `passwordHash`, `role`, `createdAt`, `updatedAt` |
 | `organization_settings` | `OrganizationSettings` | provider actif, clés chiffrées, topic, timezone |
 
 > Collection `subscribers` **supprimée** — à dropper manuellement sur chaque environnement : `db.subscribers.drop()`
@@ -242,7 +251,7 @@ Organisation par **domaine métier** (pas seulement par couche technique).
 |----------|--------|------|
 | `MONGODB_URI` | Connexion Mongo | Obligatoire |
 | `JWT_SECRET` | Signature JWT (≥ 32 car.) | Obligatoire |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Bootstrap admin | Obligatoire si base vide |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` / `ADMIN_USERNAME` | Bootstrap admin (create-if-missing only) | Obligatoire si aucun ADMIN |
 | `ENCRYPTION_KEY` | AES-256 (Base64 32 bytes) | Obligatoire |
 | `MAIL_HOST` / `MAIL_USERNAME` / `MAIL_PASSWORD` | SMTP | Obligatoire en prod |
 | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | Placeholders auto-config Spring AI | Présents ; runtime via settings |

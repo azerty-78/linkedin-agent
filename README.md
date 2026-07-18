@@ -61,7 +61,8 @@ $env:JWT_SECRET="dev-only-secret-change-me-min-32-characters-long"
 
 ### 4. Première connexion
 
-Si la collection `app_users` est vide, un compte admin est créé au démarrage (`ADMIN_EMAIL` / `ADMIN_PASSWORD`).
+Si la collection `app_users` n’a pas encore d’ADMIN, un compte est créé au démarrage (`ADMIN_EMAIL` / `ADMIN_PASSWORD` / `ADMIN_USERNAME` optionnel).  
+Si l’ADMIN existe déjà, le seed **ne touche pas** au mot de passe ni au profil.
 
 ```http
 POST http://localhost:8080/api/auth/login

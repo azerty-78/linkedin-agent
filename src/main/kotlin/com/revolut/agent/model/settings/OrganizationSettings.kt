@@ -8,6 +8,12 @@ data class OrganizationSettings(
 	@Id
 	val id: String? = null,
 	val companyName: String = "",
+	/** Slogan / tagline (optionnel). */
+	val companyTagline: String? = null,
+	/** Secteur d’activité (optionnel). */
+	val industry: String? = null,
+	/** Site web http(s) (optionnel). */
+	val websiteUrl: String? = null,
 	val contentTopic: String = "",
 	val publishHourUtc: Int = 9,
 	val timezone: String = "Africa/Douala",

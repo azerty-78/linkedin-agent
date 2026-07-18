@@ -7,7 +7,7 @@ Documentation destinée au frontend pour brancher / mettre à jour les appels HT
 **Auth** : JWT Bearer sur toutes les routes sauf celles marquées **Public**
 
 > Dernière synchro : alignée sur les controllers fonctionnels (`auth`, `settings`, `ai`, `linkedin`, `publications`, `actuator/health`).  
-> **Changelog** : feature subscribers / newsletter **supprimée** (routes `/api/subscribers*` et `/api/public/unsubscribe*` absentes → 404).
+> **Changelog** : feature subscribers / newsletter **supprimée** ; users/profil en DB (`GET/PUT /api/auth/me`, `POST /api/auth/change-password`) — seed ADMIN create-if-missing only.
 
 ---
 
@@ -128,19 +128,91 @@ Si OpenAI/Anthropic renvoient un quota `429` et qu’une clé Gemini est configu
 
 | Champ | Type |
 |-------|------|
+| `id` | `string` |
 | `email` | `string` |
+| `username` | `string` |
 | `role` | `string` (ex. `ADMIN`) |
+| `createdAt` | `string` (ISO-8601) |
+| `updatedAt` | `string` (ISO-8601) |
 
 ```json
 {
+  "id": "665f1a2b3c4d5e6f7a8b9c0d",
   "email": "admin@example.com",
-  "role": "ADMIN"
+  "username": "admin",
+  "role": "ADMIN",
+  "createdAt": "2026-07-18T10:00:00Z",
+  "updatedAt": "2026-07-18T12:00:00Z"
 }
 ```
 
+Jamais de `password` / `passwordHash` dans la réponse.
+
 ---
 
-### 2.3 Logout
+### 2.3 Mettre à jour le profil
+
+| | |
+|--|--|
+| **Méthode** | `PUT` |
+| **URL** | `/api/auth/me` |
+| **Auth** | Bearer |
+| **Succès** | `200` |
+
+**Body**
+
+| Champ | Type | Requis | Contraintes |
+|-------|------|--------|-------------|
+| `username` | `string` | Oui | 2–64, `[a-zA-Z0-9._-]+`, unique |
+| `email` | `string` | Oui | Email valide, unique |
+
+```json
+{
+  "username": "aline",
+  "email": "aline@company.com"
+}
+```
+
+**Réponse `200`** : même forme que `GET /api/auth/me`.
+
+**Erreurs** : `400` validation · `409` username ou email déjà pris.
+
+Le user ciblé est **uniquement** celui du JWT (pas d’`id` dans le body).  
+Après changement d’email, le prochain login utilise le nouvel email.
+
+---
+
+### 2.4 Changer le mot de passe
+
+| | |
+|--|--|
+| **Méthode** | `POST` |
+| **URL** | `/api/auth/change-password` |
+| **Auth** | Bearer |
+| **Succès** | `204` (pas de body) |
+
+**Body**
+
+| Champ | Type | Requis | Contraintes |
+|-------|------|--------|-------------|
+| `currentPassword` | `string` | Oui | Doit matcher le hash en DB |
+| `newPassword` | `string` | Oui | Min 8 caractères |
+
+```json
+{
+  "currentPassword": "••••••••",
+  "newPassword": "••••••••"
+}
+```
+
+**Erreurs** : `400` — MDP actuel incorrect ou nouveau trop court.
+
+Les autres sessions du compte sont révoquées ; la session courante reste valide.  
+Source de vérité = hash en DB (`app_users`). `ADMIN_PASSWORD` / `.env` ne sert **qu’au seed initial**.
+
+---
+
+### 2.5 Logout
 
 | | |
 |--|--|
@@ -150,6 +222,8 @@ Si OpenAI/Anthropic renvoient un quota `429` et qu’une clé Gemini est configu
 | **Succès** | `204` |
 
 Révoque la session courante (le JWT ne fonctionne plus). Appeler avant de supprimer le token côté front.
+
+> **Bootstrap ADMIN** : au démarrage, si aucun `ADMIN` en base → création depuis `ADMIN_EMAIL` / `ADMIN_PASSWORD` / `ADMIN_USERNAME` (optionnel). Si l’ADMIN existe déjà → **aucune écrasement** du mot de passe ni du profil.
 
 ---
 
@@ -656,6 +730,8 @@ Même shape enrichie, du plus récent au plus ancien.
 | Login | `POST /api/auth/login` |
 | Logout | `POST /api/auth/logout` |
 | Guard / header user | `GET /api/auth/me` |
+| Profil (édition) | `PUT /api/auth/me` |
+| Changement MDP | `POST /api/auth/change-password` |
 | Settings org (+ LinkedIn app) | `GET` + `PUT /api/settings` |
 | Dropdowns modèles | `GET /api/settings/llm-models` |
 | Bouton « Générer un tip » | `POST /api/ai/generate-test` |
@@ -683,6 +759,8 @@ Même shape enrichie, du plus récent au plus ancien.
 | `POST` | `/api/auth/login` | Non | `{ email, password }` | `200` |
 | `POST` | `/api/auth/logout` | Oui | — | `204` |
 | `GET` | `/api/auth/me` | Oui | — | `200` |
+| `PUT` | `/api/auth/me` | Oui | `{ username, email }` | `200` |
+| `POST` | `/api/auth/change-password` | Oui | `{ currentPassword, newPassword }` | `204` |
 | `GET` | `/api/settings` | Oui | — | `200` |
 | `GET` | `/api/settings/llm-models` | Oui | — | `200` |
 | `PUT` | `/api/settings` | Oui | settings (§3.3) | `200` |

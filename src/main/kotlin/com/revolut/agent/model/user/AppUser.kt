@@ -12,7 +12,7 @@ data class AppUser(
 	@Indexed(unique = true)
 	val email: String,
 	@Indexed(unique = true)
-	val username: String,
+	val username: String = "",
 	val passwordHash: String,
 	val role: AppRole = AppRole.ADMIN,
 	val createdAt: Instant = Instant.now(),

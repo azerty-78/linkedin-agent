@@ -28,46 +28,45 @@ class AdminBootstrapRunner(
 		val seedEmail = bootstrapProperties.adminEmail.trim().lowercase()
 		val seedUsername = resolveSeedUsername(seedEmail)
 
+		findExistingAdmin(seedEmail)
+			.flatMap { existing -> backfillUsernameIfNeeded(existing, seedUsername) }
+			.doOnNext { existing ->
+				log.info("Admin user already present — skip seed (email='{}')", existing.email)
+			}
+			.switchIfEmpty(Mono.defer { createAdmin(seedEmail, seedUsername) })
+			.block()
+	}
+
+	private fun findExistingAdmin(seedEmail: String): Mono<AppUser> =
 		appUserRepository.findFirstByRole(AppRole.ADMIN)
 			.switchIfEmpty(appUserRepository.findByEmail(seedEmail))
-			.flatMap { existing ->
-				backfillUsernameIfNeeded(existing, seedUsername)
-					.doOnSuccess {
-						log.info("Admin user already present — skip seed (email='{}')", existing.email)
-					}
-					.then(Mono.empty<Void>())
-			}
-			.switchIfEmpty(
-				Mono.defer {
-					val now = Instant.now()
-					val admin = AppUser(
-						email = seedEmail,
-						username = seedUsername,
-						passwordHash = requireNotNull(passwordEncoder.encode(bootstrapProperties.adminPassword)),
-						role = AppRole.ADMIN,
-						createdAt = now,
-						updatedAt = now,
+
+	private fun createAdmin(seedEmail: String, seedUsername: String): Mono<AppUser> {
+		val now = Instant.now()
+		val admin = AppUser(
+			email = seedEmail,
+			username = seedUsername,
+			passwordHash = requireNotNull(passwordEncoder.encode(bootstrapProperties.adminPassword)),
+			role = AppRole.ADMIN,
+			createdAt = now,
+			updatedAt = now,
+		)
+		return appUserRepository.save(admin)
+			.doOnSuccess {
+				log.warn(
+					"Default admin account created (email='{}', username='{}'). " +
+						"Change ADMIN_EMAIL / ADMIN_PASSWORD / ADMIN_USERNAME if using defaults.",
+					seedEmail,
+					seedUsername,
+				)
+				if (isUsingDefaultCredentials()) {
+					log.warn(
+						"SECURITY: default bootstrap credentials detected " +
+							"(email='{}'). Override ADMIN_EMAIL and ADMIN_PASSWORD before production.",
+						seedEmail,
 					)
-					appUserRepository.save(admin)
-						.doOnSuccess {
-							log.warn(
-								"Default admin account created (email='{}', username='{}'). " +
-									"Change ADMIN_EMAIL / ADMIN_PASSWORD / ADMIN_USERNAME if using defaults.",
-								seedEmail,
-								seedUsername,
-							)
-							if (isUsingDefaultCredentials()) {
-								log.warn(
-									"SECURITY: default bootstrap credentials detected " +
-										"(email='{}'). Override ADMIN_EMAIL and ADMIN_PASSWORD before production.",
-									seedEmail,
-								)
-							}
-						}
-						.then()
-				},
-			)
-			.block()
+				}
+			}
 	}
 
 	/**

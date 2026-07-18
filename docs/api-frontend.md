@@ -276,6 +276,10 @@ Révoque la session courante (le JWT ne fonctionne plus). Appeler avant de suppr
 | `linkedInClientSecretMasked` | `string` | Secret masqué (jamais en clair) |
 | `activeLinkedInAccountId` | `string \| null` | Compte utilisé pour publier (max 3) |
 | `schedulerEnabled` | `boolean` | |
+| `schedulerFrequency` | enum | Défaut `DAILY` — `DAILY`\|`WEEKDAYS`\|`WEEKLY`\|`CUSTOM_DAYS`\|`EVERY_N_DAYS` |
+| `schedulerDaysOfWeek` | `number[]` | ISO 1=lun … 7=dim (WEEKLY / CUSTOM_DAYS) |
+| `schedulerIntervalDays` | `number` | EVERY_N_DAYS (2–30), défaut `2` |
+| `schedulerAnchorDate` | `string \| null` | `YYYY-MM-DD` ancre EVERY_N_DAYS |
 | `updatedAt` | `string` (ISO-8601) | |
 
 > **Redirect OAuth + scopes** : gérés **uniquement côté serveur** (`linkedin.redirect-uri`, `linkedin.oauth-scopes`). **Pas d’UI**, non exposés dans `GET /api/settings`.
@@ -438,10 +442,15 @@ Les anciens modèles `gemini-2.x` indisponibles sont remappés automatiquement.
 | `linkedInOauthScopes` | — | — | **Ignoré** (serveur : `linkedin.oauth-scopes`) |
 | `activeLinkedInAccountId` | `string \| null` | Non | `null` = conserver ; `""` = aucun ; id = compte actif (**400** si inconnu) |
 | `schedulerEnabled` | `boolean \| null` | Non | `null` = conserver |
+| `schedulerFrequency` | enum | Non | `null` = conserver ; défaut `DAILY` |
+| `schedulerDaysOfWeek` | `number[]` | Non | `null` = conserver ; WEEKLY = 1 jour ; CUSTOM_DAYS ≥ 1 |
+| `schedulerIntervalDays` | `number` | Non | EVERY_N_DAYS ∈ [2,30] |
+| `schedulerAnchorDate` | `string \| null` | Non | `YYYY-MM-DD` ; `""` = vider |
 
-> **Brief IA** : les champs ton / emojis / formats / etc. sont persistés via `PUT /api/settings` et consommés par un **`PromptContextBuilder` unique** (generate-test, publish-test, trigger, scheduler). Changer les consignes puis re-trigger = prompt à jour (settings relus à chaque run).
+> **Scheduler** : fenêtre `publishHourUtc` UTC ± 5 min ; jours / idempotence 1 SUCCESS SCHEDULED / jour calendaire selon `timezone`. Provider auto = `activeLlmProvider`.  
+> **Brief IA** : ton / emojis / formats via `PromptContextBuilder` (tous les flux de génération).
 
-**Enums brief** : `BrandTone` (`PROFESSIONAL|CASUAL|EXPERT|INSPIRATIONAL|EDUCATIONAL`), `EmojiPolicy` (`NONE|SPARSE|ALLOWED`), `PostLengthPreference` (`SHORT|MEDIUM|LONG`), `ContentFormat` (`TIP|STORY|QUESTION|LIST|OPINION|CASE_STUDY`), `ContentLanguage` (`fr|en|auto`).
+**Enums** : `SchedulerFrequency`, `BrandTone`, `EmojiPolicy`, `PostLengthPreference`, `ContentFormat`, `ContentLanguage` (`fr|en|auto`).
 
 ```json
 {
@@ -459,6 +468,11 @@ Les anciens modèles `gemini-2.x` indisponibles sont remappés automatiquement.
   "defaultHashtags": "#fintech",
   "publishHourUtc": 9,
   "timezone": "Africa/Douala",
+  "schedulerEnabled": true,
+  "schedulerFrequency": "WEEKDAYS",
+  "schedulerDaysOfWeek": [1, 2, 3, 4, 5],
+  "schedulerIntervalDays": 2,
+  "schedulerAnchorDate": null,
   "activeLlmProvider": "GEMINI",
   "openAiModel": "gpt-4.1-nano",
   "anthropicModel": "claude-haiku-4-5",

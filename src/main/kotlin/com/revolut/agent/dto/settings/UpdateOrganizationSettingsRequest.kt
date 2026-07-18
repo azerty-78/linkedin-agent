@@ -6,6 +6,7 @@ import com.revolut.agent.model.settings.ContentLanguage
 import com.revolut.agent.model.settings.EmojiPolicy
 import com.revolut.agent.model.settings.LlmProvider
 import com.revolut.agent.model.settings.PostLengthPreference
+import com.revolut.agent.model.settings.SchedulerFrequency
 import jakarta.validation.constraints.Max
 import jakarta.validation.constraints.Min
 import jakarta.validation.constraints.NotBlank
@@ -115,4 +116,14 @@ data class UpdateOrganizationSettingsRequest(
 	val activeLinkedInAccountId: String? = null,
 
 	val schedulerEnabled: Boolean? = null,
+
+	val schedulerFrequency: SchedulerFrequency? = null,
+
+	/** ISO 1–7 ; `null` = conserver. */
+	val schedulerDaysOfWeek: List<Int>? = null,
+
+	val schedulerIntervalDays: Int? = null,
+
+	/** `YYYY-MM-DD` ou null/`""` pour vider (EVERY_N_DAYS). */
+	val schedulerAnchorDate: String? = null,
 )

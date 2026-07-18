@@ -49,6 +49,13 @@ data class OrganizationSettings(
 	/** Compte LinkedIn actif pour publication (id Mongo de linkedin_connection). */
 	val activeLinkedInAccountId: String? = null,
 	val schedulerEnabled: Boolean = false,
+	val schedulerFrequency: SchedulerFrequency = SchedulerFrequency.DAILY,
+	/** Jours ISO 1=lun … 7=dim (WEEKLY / CUSTOM_DAYS). */
+	val schedulerDaysOfWeek: List<Int> = emptyList(),
+	/** Intervalle pour EVERY_N_DAYS (2–30). */
+	val schedulerIntervalDays: Int = 2,
+	/** Ancre EVERY_N_DAYS `YYYY-MM-DD` (timezone org). */
+	val schedulerAnchorDate: String? = null,
 	val updatedAt: Instant = Instant.now(),
 	val updatedBy: String? = null,
 )

@@ -6,6 +6,7 @@ import com.revolut.agent.model.settings.ContentLanguage
 import com.revolut.agent.model.settings.EmojiPolicy
 import com.revolut.agent.model.settings.LlmProvider
 import com.revolut.agent.model.settings.PostLengthPreference
+import com.revolut.agent.model.settings.SchedulerFrequency
 import java.time.Instant
 
 data class OrganizationSettingsResponse(
@@ -44,5 +45,9 @@ data class OrganizationSettingsResponse(
 	/** Id du compte LinkedIn actif (parmi max 3). */
 	val activeLinkedInAccountId: String?,
 	val schedulerEnabled: Boolean,
+	val schedulerFrequency: SchedulerFrequency,
+	val schedulerDaysOfWeek: List<Int>,
+	val schedulerIntervalDays: Int,
+	val schedulerAnchorDate: String?,
 	val updatedAt: Instant,
 )

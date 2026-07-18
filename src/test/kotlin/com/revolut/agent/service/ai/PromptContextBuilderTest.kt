@@ -109,6 +109,10 @@ class PromptContextBuilderTest {
 		linkedInClientSecretMasked = "",
 		activeLinkedInAccountId = null,
 		schedulerEnabled = false,
+		schedulerFrequency = com.revolut.agent.model.settings.SchedulerFrequency.DAILY,
+		schedulerDaysOfWeek = emptyList(),
+		schedulerIntervalDays = 2,
+		schedulerAnchorDate = null,
 		updatedAt = Instant.parse("2026-07-18T12:00:00Z"),
 	)
 }

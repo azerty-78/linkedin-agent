@@ -27,12 +27,14 @@ class PublicationSchedulerService(
 
 	private val log = LoggerFactory.getLogger(javaClass)
 
+	/** Garde anti double-fire dans la fenêtre ±5 min (complète l’idempotence DB SUCCESS). */
 	private val lastScheduledTriggerDate: AtomicReference<LocalDate?> = AtomicReference(null)
 
 	fun lastScheduledRunDate(): LocalDate? = lastScheduledTriggerDate.get()
 
 	/**
-	 * Tolérance ±5 min autour de `publishHourUtc:00` UTC.
+	 * Tick toutes les 5 min. Fenêtre : `publishHourUtc:00` UTC ± 5 min.
+	 * Jours / idempotence : calendrier de `timezone` org.
 	 */
 	@Scheduled(fixedRate = 300_000)
 	fun checkAndTriggerScheduledPublication() {
@@ -49,7 +51,7 @@ class PublicationSchedulerService(
 		}
 	}
 
-	private fun evaluateAndMaybeTrigger(settings: OrganizationSettingsResponse): Mono<Void> {
+	internal fun evaluateAndMaybeTrigger(settings: OrganizationSettingsResponse): Mono<Void> {
 		if (!settings.schedulerEnabled) {
 			log.debug("Scheduler check skipped | schedulerEnabled=false")
 			return Mono.empty()
@@ -59,8 +61,7 @@ class PublicationSchedulerService(
 			.then(
 				Mono.defer {
 					val nowUtc = ZonedDateTime.now(ZoneOffset.UTC)
-					val today = nowUtc.toLocalDate()
-					if (!isWithinPublishWindow(nowUtc, settings.publishHourUtc)) {
+					if (!SchedulerDecision.isWithinPublishWindow(nowUtc, settings.publishHourUtc)) {
 						log.debug(
 							"Scheduler check | outside window | hourUtc={} | now={}",
 							settings.publishHourUtc,
@@ -68,38 +69,72 @@ class PublicationSchedulerService(
 						)
 						return@defer Mono.empty()
 					}
-					if (lastScheduledTriggerDate.get() == today) {
-						log.debug("Scheduler check | already triggered today {}", today)
+
+					val freq = SchedulerDecision.evaluateFrequency(settings, nowUtc)
+					if (!freq.shouldRun) {
+						log.debug(
+							"Scheduler check | frequency skip | freq={} | days={}",
+							settings.schedulerFrequency,
+							settings.schedulerDaysOfWeek,
+						)
 						return@defer Mono.empty()
 					}
-					publicationRepository.existsByStatus(PublicationStatus.IN_PROGRESS)
-						.flatMap { running ->
-							if (running) {
-								log.warn("Scheduler check | skipped — publication already IN_PROGRESS")
-								Mono.empty()
-							} else {
-								lastScheduledTriggerDate.set(today)
-								log.info(
-									"Scheduler triggering publication | date={} | publishHourUtc={}",
-									today,
-									settings.publishHourUtc,
-								)
-								publicationOrchestratorService.orchestrate(
-									triggerType = PublicationTriggerType.SCHEDULED,
-									triggeredBy = "scheduler",
-								).then()
-							}
+
+					val zone = SchedulerDecision.resolveZone(settings.timezone)
+					val todayLocal = nowUtc.withZoneSameInstant(zone).toLocalDate()
+					val dayStart = todayLocal.atStartOfDay(zone).toInstant()
+					val dayEnd = todayLocal.plusDays(1).atStartOfDay(zone).toInstant()
+
+					val persistAnchor: Mono<OrganizationSettingsResponse> =
+						if (freq.anchorToPersist != null) {
+							organizationSettingsService.ensureSchedulerAnchorDate(freq.anchorToPersist)
+						} else {
+							Mono.just(settings)
 						}
+
+					persistAnchor.flatMap { _ ->
+						if (lastScheduledTriggerDate.get() == todayLocal) {
+							log.debug("Scheduler check | already triggered today (memory) {}", todayLocal)
+							return@flatMap Mono.empty()
+						}
+						publicationRepository
+							.existsByTriggerTypeAndStatusInAndTriggeredAtGreaterThanEqualAndTriggeredAtLessThan(
+								triggerType = PublicationTriggerType.SCHEDULED,
+								statuses = listOf(PublicationStatus.SUCCESS, PublicationStatus.PARTIAL_SUCCESS),
+								from = dayStart,
+								to = dayEnd,
+							)
+							.flatMap { alreadySuccess ->
+								if (alreadySuccess) {
+									log.debug("Scheduler check | already SUCCESS today {}", todayLocal)
+									lastScheduledTriggerDate.set(todayLocal)
+									Mono.empty()
+								} else {
+									publicationRepository.existsByStatus(PublicationStatus.IN_PROGRESS)
+										.flatMap { running ->
+											if (running) {
+												log.warn("Scheduler check | skipped — publication already IN_PROGRESS")
+												Mono.empty()
+											} else {
+												lastScheduledTriggerDate.set(todayLocal)
+												log.info(
+													"Scheduler triggering publication | localDate={} | tz={} | freq={} | publishHourUtc={}",
+													todayLocal,
+													settings.timezone,
+													settings.schedulerFrequency,
+													settings.publishHourUtc,
+												)
+												publicationOrchestratorService.orchestrate(
+													triggerType = PublicationTriggerType.SCHEDULED,
+													triggeredBy = "scheduler",
+												).then()
+											}
+										}
+								}
+							}
+					}
 				},
 			)
-	}
-
-	internal fun isWithinPublishWindow(nowUtc: ZonedDateTime, publishHourUtc: Int): Boolean {
-		val hour = publishHourUtc.coerceIn(0, 23)
-		val target = nowUtc.toLocalDate().atTime(hour, 0).atZone(ZoneOffset.UTC)
-		val start = target.minusMinutes(WINDOW_MINUTES)
-		val end = target.plusMinutes(WINDOW_MINUTES)
-		return !nowUtc.isBefore(start) && !nowUtc.isAfter(end)
 	}
 
 	private fun warnIfMisconfigured(settings: OrganizationSettingsResponse): Mono<Void> {
@@ -128,9 +163,5 @@ class PublicationSchedulerService(
 				}
 			}
 			.then()
-	}
-
-	companion object {
-		private const val WINDOW_MINUTES = 5L
 	}
 }

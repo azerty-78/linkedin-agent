@@ -9,12 +9,16 @@ import com.revolut.agent.model.settings.ContentFormat
 import com.revolut.agent.model.settings.LlmModelCatalog
 import com.revolut.agent.model.settings.LlmProvider
 import com.revolut.agent.model.settings.OrganizationSettings
+import com.revolut.agent.model.settings.SchedulerFrequency
 import com.revolut.agent.repository.linkedin.LinkedInConnectionRepository
 import com.revolut.agent.repository.settings.OrganizationSettingsRepository
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import reactor.core.publisher.Mono
 import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeParseException
 
 data class LinkedInAppCredentials(
 	val clientId: String,
@@ -83,7 +87,13 @@ class OrganizationSettingsService(
 						Mono.defer {
 							val websiteUrl = normalizeOptionalText(request.websiteUrl, maxLen = 500)
 							validateWebsiteUrl(websiteUrl)
+							validateTimezone(request.timezone.trim())
 							val preferredFormats = resolvePreferredFormats(base.preferredFormats, request.preferredFormats)
+							val frequency = request.schedulerFrequency ?: base.schedulerFrequency
+							val daysOfWeek = resolveSchedulerDays(base.schedulerDaysOfWeek, request.schedulerDaysOfWeek)
+							val intervalDays = request.schedulerIntervalDays ?: base.schedulerIntervalDays
+							val anchorDate = resolveSchedulerAnchor(base.schedulerAnchorDate, request.schedulerAnchorDate)
+							validateSchedulerConfig(frequency, daysOfWeek, intervalDays)
 							organizationSettingsRepository.save(
 								base.copy(
 									companyName = request.companyName.trim(),
@@ -127,6 +137,10 @@ class OrganizationSettingsService(
 									linkedInOauthScopes = base.linkedInOauthScopes,
 									activeLinkedInAccountId = nextActiveAccountId,
 									schedulerEnabled = request.schedulerEnabled ?: base.schedulerEnabled,
+									schedulerFrequency = frequency,
+									schedulerDaysOfWeek = daysOfWeek,
+									schedulerIntervalDays = intervalDays,
+									schedulerAnchorDate = anchorDate,
 									updatedAt = Instant.now(),
 									updatedBy = updatedByEmail,
 								),
@@ -362,8 +376,31 @@ class OrganizationSettingsService(
 			linkedInClientSecretMasked = maskEncrypted(settings.encryptedLinkedInClientSecret),
 			activeLinkedInAccountId = settings.activeLinkedInAccountId,
 			schedulerEnabled = settings.schedulerEnabled,
+			schedulerFrequency = settings.schedulerFrequency,
+			schedulerDaysOfWeek = settings.schedulerDaysOfWeek,
+			schedulerIntervalDays = settings.schedulerIntervalDays,
+			schedulerAnchorDate = settings.schedulerAnchorDate,
 			updatedAt = settings.updatedAt,
 		)
+
+	/**
+	 * Persiste l’ancre EVERY_N_DAYS si absente (appelé par le scheduler).
+	 */
+	fun ensureSchedulerAnchorDate(anchorIsoDate: String): Mono<OrganizationSettingsResponse> =
+		findOrCreateSettings()
+			.flatMap { settings ->
+				if (!settings.schedulerAnchorDate.isNullOrBlank()) {
+					Mono.just(settings)
+				} else {
+					organizationSettingsRepository.save(
+						settings.copy(
+							schedulerAnchorDate = anchorIsoDate,
+							updatedAt = Instant.now(),
+						),
+					)
+				}
+			}
+			.map(::toResponse)
 
 	private fun resolvePreferredFormats(
 		existing: List<ContentFormat>,
@@ -377,6 +414,64 @@ class OrganizationSettingsService(
 			throw IllegalArgumentException("preferredFormats: max 6 unique values")
 		}
 		return distinct
+	}
+
+	private fun resolveSchedulerDays(existing: List<Int>, incoming: List<Int>?): List<Int> {
+		if (incoming == null) {
+			return existing.distinct().sorted()
+		}
+		return incoming.distinct().sorted()
+	}
+
+	private fun resolveSchedulerAnchor(existing: String?, incoming: String?): String? {
+		if (incoming == null) {
+			return existing
+		}
+		val trimmed = incoming.trim()
+		if (trimmed.isEmpty()) {
+			return null
+		}
+		return try {
+			LocalDate.parse(trimmed).toString()
+		} catch (_: DateTimeParseException) {
+			throw IllegalArgumentException("schedulerAnchorDate must be YYYY-MM-DD")
+		}
+	}
+
+	private fun validateSchedulerConfig(
+		frequency: SchedulerFrequency,
+		daysOfWeek: List<Int>,
+		intervalDays: Int,
+	) {
+		if (daysOfWeek.any { it !in 1..7 }) {
+			throw IllegalArgumentException("schedulerDaysOfWeek: each day must be in 1..7 (ISO)")
+		}
+		when (frequency) {
+			SchedulerFrequency.WEEKLY -> {
+				if (daysOfWeek.size != 1) {
+					throw IllegalArgumentException("WEEKLY requires exactly 1 day in schedulerDaysOfWeek")
+				}
+			}
+			SchedulerFrequency.CUSTOM_DAYS -> {
+				if (daysOfWeek.isEmpty()) {
+					throw IllegalArgumentException("CUSTOM_DAYS requires at least 1 day in schedulerDaysOfWeek")
+				}
+			}
+			SchedulerFrequency.EVERY_N_DAYS -> {
+				if (intervalDays !in 2..30) {
+					throw IllegalArgumentException("EVERY_N_DAYS requires schedulerIntervalDays in 2..30")
+				}
+			}
+			SchedulerFrequency.DAILY, SchedulerFrequency.WEEKDAYS -> Unit
+		}
+	}
+
+	private fun validateTimezone(timezone: String) {
+		try {
+			ZoneId.of(timezone)
+		} catch (_: Exception) {
+			throw IllegalArgumentException("timezone must be a valid IANA zone (e.g. Europe/Paris)")
+		}
 	}
 
 	/** `null` / blank → null (vider) ; sinon trim + max length. */

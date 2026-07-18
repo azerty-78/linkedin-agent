@@ -435,9 +435,9 @@ Les anciens modèles `gemini-2.x` indisponibles sont remappés automatiquement.
 | `anthropicApiKey` | `string \| null` | Non | Idem |
 | `geminiApiKey` | `string \| null` | Non | Idem |
 | `linkedInOrganizationId` | `string \| null` | Non | |
-| `linkedInClientId` | `string \| null` | Non | `null` = conserver ; `""` = **effacer** ; valeur = remplacer |
-| `linkedInClientSecret` | `string \| null` | Non | `null` / vide = **conserver** (chiffré en DB) |
-| `clearLinkedInClientSecret` | `boolean \| null` | Non | `true` = **effacer** le secret (Delete) |
+| `linkedInClientId` | `string \| null` | Non | **Déprécié** — écriture **ignorée** (utiliser `/api/linkedin/apps`) |
+| `linkedInClientSecret` | `string \| null` | Non | **Déprécié** — écriture **ignorée** |
+| `clearLinkedInClientSecret` | `boolean \| null` | Non | **Déprécié** — écriture **ignorée** |
 | `linkedInRedirectUri` | — | — | **Ignoré** (serveur : `linkedin.redirect-uri`) |
 | `linkedInOauthScopes` | — | — | **Ignoré** (serveur : `linkedin.oauth-scopes`) |
 | `activeLinkedInAccountId` | `string \| null` | Non | `null` = conserver ; `""` = aucun ; id = compte actif (**400** si inconnu) |
@@ -579,223 +579,61 @@ Utile pour un indicateur « API up » dans le frontend / CI.
 
 ---
 
-## 8. LinkedIn — credentials org + multi-comptes (max 3)
+## 8. LinkedIn — multi-apps (max 3) + multi-comptes Pages (max 3)
 
 **Clarification modèles :**
 
 | Niveau | Quoi | Où |
 |--------|------|-----|
-| **App (org)** | Client ID / Secret | `PUT /api/settings` (secret chiffré, jamais en clair) |
-| **OAuth serveur** | Redirect URI + scopes | Properties `linkedin.redirect-uri` / `linkedin.oauth-scopes` — **pas d’UI** |
-| **Compte** | OAuth token + URN Page (+ métadonnées Page) | `/api/linkedin/accounts*` |
-| **Actif** | Compte qui publie | `PUT …/activate` (recommandé) ou `activeLinkedInAccountId` |
+| **Application (credentials)** | Client ID / Secret (max 3) | `/api/linkedin/apps*` — **source de vérité** |
+| **OAuth serveur** | Redirect URI + scopes | Properties `linkedin.redirect-uri` / `linkedin.oauth-scopes` — **pas d'UI** |
+| **Compte / Page** | OAuth token + URN Page | `/api/linkedin/accounts*` |
+| **App active** | Credentials OAuth / publish | `PUT /api/linkedin/apps/{id}/activate` |
+| **Compte actif** | Page qui publie | `PUT /api/linkedin/accounts/{id}/activate` |
 
-Auth Bearer sur toutes les routes ci-dessous sauf `/api/linkedin/callback` (public).
+Auth Bearer sauf `/api/linkedin/callback` (public).
 
-### 8.0 Credentials app (Settings) — UI
+> `PUT /api/settings` **n'écrit plus** `linkedInClientId` / secret. `GET /api/settings` peut renvoyer ceux de l'**app active** (overlay lecture).
 
-Settings expose seulement Client ID + Secret (masqué). **Pas** de redirect / scopes.
+### 8.0 Applications LinkedIn — `/api/linkedin/apps`
 
-```json
-{
-  "linkedInClientId": "78xxxxxxxxxxxx",
-  "linkedInClientSecret": "WPL_AP1....",
-  "activeLinkedInAccountId": "mongoObjectIdDuCompteActif"
-}
-```
+| Méthode | Route | Succès | Notes |
+|---------|-------|--------|--------|
+| `GET` | `/api/linkedin/apps` | `200` | Liste + `maxApps=3` + `activeAppId` |
+| `POST` | `/api/linkedin/apps` | `201` | 1re app → active auto ; `409` si max 3 ou `clientId` dupliqué |
+| `PUT` | `/api/linkedin/apps/{id}` | `200` | Secret omis = conserver ; `clearClientSecret: true` = effacer |
+| `PUT` | `/api/linkedin/apps/{id}/activate` | `200` | Une seule active |
+| `DELETE` | `/api/linkedin/apps/{id}` | `204` | Active supprimée → auto-active la plus récente |
+| `GET` | `/api/linkedin/apps/audit?page&size` | `200` | Historique (sans secrets) |
+| `GET` | `/api/linkedin/apps/audit/export` | `200` | `{ events: [...] }` |
+| `GET` | `/api/linkedin/apps/health` | `200` | Checks credentials / token / URN |
+| `POST` | `/api/linkedin/apps/{id}/verify` | `200` | Credentials déchiffrables ? |
 
-`GET /api/settings` → `linkedInClientId`, `linkedInClientSecretMasked`, `activeLinkedInAccountId` (pas de `linkedInRedirectUri` / `linkedInOauthScopes`).
+**Create** : `{ "label": "Prod", "clientId": "78xxxxxxxxxxxx", "clientSecret": "…" }` — `clientId` regex `^[a-zA-Z0-9]{8,64}$`.
 
-### 8.1 Tableau comptes (Réglages)
+Migration boot : settings legacy → app « Default » active si 0 apps.
 
-`GET /api/linkedin/accounts` — chaque compte est autonome pour le tableau :
+### 8.1 Comptes Pages (OAuth)
 
-| Colonne UI | Champ API | Notes |
-|------------|-----------|--------|
-| ID LinkedIn | `linkedInClientId` | Copie credentials **org** (même valeur sur chaque ligne) |
-| Secret | `linkedInClientSecretMasked` | Toujours masqué (`****xxxx`) ou `null` |
-| Nom de la page | `organizationName` | Sinon fallback `label` / id dans `linkedInOrganizationUrn` |
-| Statut publication | `isActive` | `true` → **Actif** ; `false` → **En veille** |
+Inchangé : `/api/linkedin/accounts*` (max 3). Les champs `linkedInClientId` / masked reflètent l'**app active**.
 
-> Ne pas confondre `isActive` (qui publie) avec `status` OAuth (`CONNECTED` / `EXPIRED` / …).
+### 8.2 Summary
 
-```json
-{
-  "id": "665f…",
-  "label": "Page Prod",
-  "status": "CONNECTED",
-  "isActive": true,
-  "organizationName": "KOBE Corporation",
-  "linkedInOrganizationUrn": "urn:li:organization:123",
-  "linkedInClientId": "78xxxxxxxxxxxx",
-  "linkedInClientSecretMasked": "****cret",
-  "organizationLogoUrl": null,
-  "organizationVanityName": null
-}
-```
+`GET /api/linkedin/summary` ajoute `hasActiveApp`, `activeAppId`, `appsCount` + blocker `NO_ACTIVE_APP`.
 
-`organizationName` : résolu best-effort au `PUT …/organization-urn` (et au reconnect OAuth si URN déjà présent) via Organizations API. Scopes : `r_organization_social` (+ CMA). Sinon `null`.
+OAuth / publish-test utilisent l'**app active** (`getActiveCredentials`).
 
-### 8.2 Endpoints comptes / résumé
+### 8.3 Checklist frontend
 
-| Méthode | Route | Succès | Erreurs |
-|---------|-------|--------|---------|
-| `GET` | `/api/linkedin/summary` | `200` | `401` |
-| `GET` | `/api/linkedin/accounts` | `200` | `401` |
-| `GET` | `/api/linkedin/accounts/active` | `200` | `401`, **`404`** si aucun actif |
-| `POST` | `/api/linkedin/accounts/connect?label=` | `200` | `401`, **`409`** si max 3, `422` si credentials absents |
-| `GET` | `/api/linkedin/accounts/{id}` | `200` | `401`, `404` |
-| `GET` | `/api/linkedin/accounts/{id}/auth-url` | `200` | `401`, `404` |
-| `PUT` | `/api/linkedin/accounts/{id}/activate` | `200` `LinkedInAccountListResponse` | `401`, `404` |
-| `PUT` | `/api/linkedin/accounts/{id}` | `200` | `401`, `404` |
-| `PUT` | `/api/linkedin/accounts/{id}/organization-urn` | `200` | `401`, `404`, `400` |
-| `DELETE` | `/api/linkedin/accounts/{id}` | `204` | `401`, `404` |
-
-**Switch actif** : `PUT /api/linkedin/accounts/{id}/activate` → `200` liste rafraîchie (`isActive` mis à jour).
-
-Compat legacy : `GET /auth-url`, `GET /status`, `PUT /organization-urn`, `DELETE /disconnect`.
-
-#### `GET /api/linkedin/accounts/active`
-
-Compte explicitement sélectionné — **pas** de fallback « premier connecté ». Même shape que ci-dessus (`isActive: true`).
-
-#### `GET /api/linkedin/summary`
-
-```json
-{
-  "hasAppCredentials": true,
-  "accountsCount": 2,
-  "maxAccounts": 3,
-  "activeAccount": null,
-  "canPublish": false,
-  "publishBlockers": ["NO_ACTIVE_ACCOUNT", "MISSING_ORG_URN"]
-}
-```
-
-| Code `publishBlockers` (i18n front) | Signification |
-|-------------------------------------|---------------|
-| `MISSING_CLIENT_ID` | Pas de Client ID |
-| `MISSING_CLIENT_SECRET` | Pas de secret |
-| `NO_ACTIVE_ACCOUNT` | Pas d’actif |
-| `NOT_CONNECTED` | Actif ≠ `CONNECTED` |
-| `MISSING_ORG_URN` | URN Page manquant |
-| `EXPIRED` | Token / statut expiré |
-| `ERROR_STATUS` | Statut `ERROR` |
-
-`canPublish === true` ⇔ `publishBlockers` vide.
-
-#### `PUT /api/linkedin/accounts/{id}/activate`
-
-```ts
-await fetch(`${API_BASE}/api/linkedin/accounts/${id}/activate`, {
-  method: "PUT",
-  headers: { Authorization: `Bearer ${token}` },
-});
-// → 200 LinkedInAccountListResponse
-```
-
-#### `POST /api/linkedin/accounts/connect?label=`
-
-```ts
-async function addLinkedInAccount(token: string, label?: string) {
-  const q = label ? `?label=${encodeURIComponent(label)}` : "";
-  const res = await fetch(`${API_BASE}/api/linkedin/accounts/connect${q}`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (res.status === 409) throw new Error("Maximum 3 comptes LinkedIn");
-  if (!res.ok) throw new Error(await res.text());
-  const { authorizationUrl } = await res.json();
-  window.location.assign(authorizationUrl);
-}
-```
-
-#### `GET /api/linkedin/callback` — **ne pas appeler depuis le front**
-
-302 → `{FRONTEND_URL}/dashboard/linkedin?connected=true|false&error=…`.
-
-### 8.2 Types TypeScript
-
-```ts
-type LinkedInConnectionStatus =
-  | "NOT_CONNECTED"
-  | "CONNECTED"
-  | "EXPIRED"
-  | "ERROR";
-
-type LinkedInStatusResponse = {
-  id: string | null;
-  label: string;
-  status: LinkedInConnectionStatus;
-  linkedInUserUrn: string | null;
-  linkedInOrganizationUrn: string | null;
-  connectedAt: string | null;
-  lastError: string | null;
-  /** Publication : true = Actif, false = En veille */
-  isActive: boolean;
-  organizationName: string | null;
-  organizationLogoUrl: string | null;
-  organizationVanityName: string | null;
-  /** Credentials org (copie) — secret toujours masqué */
-  linkedInClientId: string | null;
-  linkedInClientSecretMasked: string | null;
-};
-
-type LinkedInAccountListResponse = {
-  accounts: LinkedInStatusResponse[];
-  maxAccounts: number;
-  activeLinkedInAccountId: string | null;
-};
-
-type LinkedInSummaryResponse = {
-  hasAppCredentials: boolean;
-  accountsCount: number;
-  maxAccounts: number;
-  activeAccount: LinkedInStatusResponse | null;
-  canPublish: boolean;
-  publishBlockers: string[];
-};
-
-type PublicationRecordResponse = {
-  id: string | null;
-  content: string;
-  aiProvider: string;
-  targetUrn: string;
-  linkedInPostId: string | null;
-  status: "PENDING" | "PUBLISHED" | "FAILED";
-  errorMessage: string | null;
-  createdAt: string;
-  publishedAt: string | null;
-  accountId: string | null;
-  accountLabel: string | null;
-  linkedInPostUrl: string | null;
-};
-```
-
-### 8.3 UI suggérée
-
-| Écran | Appel |
-|-------|--------|
-| Page LinkedIn | `GET /accounts/active` (`404` → empty state) |
-| Page Test / bandeaux | `GET /summary` + i18n `publishBlockers` |
-| Réglages | liste + `PUT …/activate` + credentials settings |
-
-**Ne jamais** afficher ni stocker de token LinkedIn côté front.
-
-### 8.4 Checklist frontend LinkedIn
-
-- [ ] `GET /accounts/active` sur page LinkedIn
-- [ ] `GET /summary` sur Test / bandeaux
-- [ ] Actif via `PUT /accounts/{id}/activate`
-- [ ] Fallback label si `organizationName` null
-- [ ] Historique : lien `linkedInPostUrl`
-- [ ] Max 3 → `409`
+- [ ] Tableau apps CRUD + activate + audit
+- [ ] Ne plus écrire Client ID/Secret via settings
+- [ ] `publishBlockers` dont `NO_ACTIVE_APP`
+- [ ] Comptes Pages inchangés
 - [ ] Aucun appel à `/callback`
 
-### 8.5 Scopes
+### 8.4 Scopes
 
-Défaut : `w_organization_social r_organization_social`.  
-Publication = **Page org**. Lecture name/logo = `r_organization_social` (+ produit CMA).
+Défaut : `w_organization_social r_organization_social`.
 
 ---
 

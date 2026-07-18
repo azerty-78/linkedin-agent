@@ -37,6 +37,7 @@ class LinkedInOAuthService(
 	private val linkedInProperties: LinkedInProperties,
 	private val linkedInConnectionRepository: LinkedInConnectionRepository,
 	private val organizationSettingsService: OrganizationSettingsService,
+	private val linkedInAppService: LinkedInAppService,
 	private val encryptionService: EncryptionService,
 	webClientBuilder: WebClient.Builder,
 ) {
@@ -161,11 +162,13 @@ class LinkedInOAuthService(
 
 	fun getSummary(): Mono<LinkedInSummaryResponse> =
 		organizationSettingsService.getSettings()
-			.flatMap { settings ->
+			.zipWith(linkedInAppService.listApps())
+			.flatMap { tuple ->
+				val settings = tuple.t1
+				val appsList = tuple.t2
 				val activeId = settings.activeLinkedInAccountId.orEmpty()
-				val hasClientId = !settings.linkedInClientId.isNullOrBlank()
-				val hasClientSecret = settings.linkedInClientSecretMasked.isNotBlank()
-				val hasCreds = hasClientId && hasClientSecret
+				val activeApp = appsList.apps.firstOrNull { it.isActive }
+				val hasCreds = activeApp != null && activeApp.clientSecretMasked.isNotBlank()
 				val creds = orgCredsView(settings)
 
 				linkedInConnectionRepository.findAllByOrderByCreatedAtAsc()
@@ -173,8 +176,12 @@ class LinkedInOAuthService(
 					.map { accounts ->
 						val active = accounts.firstOrNull { it.id == activeId && activeId.isNotBlank() }
 						val blockers = mutableListOf<String>()
-						if (!hasClientId) blockers += LinkedInPublishBlockers.MISSING_CLIENT_ID
-						if (!hasClientSecret) blockers += LinkedInPublishBlockers.MISSING_CLIENT_SECRET
+						when {
+							activeApp == null -> blockers += LinkedInPublishBlockers.NO_ACTIVE_APP
+							activeApp.clientId.isBlank() -> blockers += LinkedInPublishBlockers.MISSING_CLIENT_ID
+							activeApp.clientSecretMasked.isBlank() ->
+								blockers += LinkedInPublishBlockers.MISSING_CLIENT_SECRET
+						}
 						when {
 							active == null -> blockers += LinkedInPublishBlockers.NO_ACTIVE_ACCOUNT
 							active.status == LinkedInConnectionStatus.EXPIRED ->
@@ -191,6 +198,9 @@ class LinkedInOAuthService(
 						}
 						LinkedInSummaryResponse(
 							hasAppCredentials = hasCreds,
+							hasActiveApp = activeApp != null,
+							activeAppId = activeApp?.id,
+							appsCount = appsList.apps.size,
 							accountsCount = accounts.size,
 							maxAccounts = LinkedInConnection.MAX_ACCOUNTS,
 							activeAccount = active?.let { toStatusResponse(it, activeId, creds) },

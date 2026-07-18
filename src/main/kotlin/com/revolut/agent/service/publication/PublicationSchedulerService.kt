@@ -178,10 +178,13 @@ class PublicationSchedulerService(
 				settings.activeLlmProvider,
 			)
 		}
-		if (settings.linkedInClientId.isNullOrBlank() || settings.linkedInClientSecretMasked.isBlank()) {
-			log.warn("Scheduler enabled but LinkedIn app credentials missing in /api/settings")
-		}
-		return linkedInOAuthService.resolveActiveAccount()
+		return organizationSettingsService.hasLinkedInAppCredentials()
+			.doOnNext { hasApp ->
+				if (!hasApp) {
+					log.warn("Scheduler enabled but no active LinkedIn app with secret — configure via /api/linkedin/apps")
+				}
+			}
+			.then(linkedInOAuthService.resolveActiveAccount())
 			.map { it.status != LinkedInConnectionStatus.CONNECTED }
 			.defaultIfEmpty(true)
 			.doOnNext { notConnected ->

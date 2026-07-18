@@ -3,6 +3,8 @@ package com.revolut.agent.exception
 import com.revolut.agent.exception.ai.AiGenerationException
 import com.revolut.agent.exception.auth.ProfileConflictException
 import com.revolut.agent.exception.linkedin.LinkedInAccountLimitException
+import com.revolut.agent.exception.linkedin.LinkedInAppConflictException
+import com.revolut.agent.exception.linkedin.LinkedInAppLimitException
 import com.revolut.agent.exception.linkedin.LinkedInPublishingException
 import com.revolut.agent.exception.publication.PublicationAlreadyRunningException
 import com.revolut.agent.exception.publication.PublicationInvalidStateException
@@ -31,13 +33,13 @@ class GlobalExceptionHandler {
 				),
 		)
 
-	@ExceptionHandler(LinkedInAccountLimitException::class)
-	fun handleLinkedInAccountLimit(ex: LinkedInAccountLimitException): Mono<ResponseEntity<Map<String, Any>>> =
+	@ExceptionHandler(LinkedInAccountLimitException::class, LinkedInAppLimitException::class, LinkedInAppConflictException::class)
+	fun handleLinkedInConflict(ex: RuntimeException): Mono<ResponseEntity<Map<String, Any>>> =
 		Mono.just(
 			ResponseEntity.status(HttpStatus.CONFLICT)
 				.body(
 					mapOf(
-						"error" to (ex.message ?: "LinkedIn account limit reached"),
+						"error" to (ex.message ?: "LinkedIn conflict"),
 						"status" to 409,
 					),
 				),

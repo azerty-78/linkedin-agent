@@ -33,6 +33,9 @@ data class LinkedInAccountListResponse(
  */
 data class LinkedInSummaryResponse(
 	val hasAppCredentials: Boolean,
+	val hasActiveApp: Boolean = false,
+	val activeAppId: String? = null,
+	val appsCount: Int = 0,
 	val accountsCount: Int,
 	val maxAccounts: Int,
 	val activeAccount: LinkedInStatusResponse?,
@@ -54,6 +57,7 @@ data class LinkedInAuthUrlResponse(
 object LinkedInPublishBlockers {
 	const val MISSING_CLIENT_ID = "MISSING_CLIENT_ID"
 	const val MISSING_CLIENT_SECRET = "MISSING_CLIENT_SECRET"
+	const val NO_ACTIVE_APP = "NO_ACTIVE_APP"
 	const val NO_ACTIVE_ACCOUNT = "NO_ACTIVE_ACCOUNT"
 	const val NOT_CONNECTED = "NOT_CONNECTED"
 	const val MISSING_ORG_URN = "MISSING_ORG_URN"

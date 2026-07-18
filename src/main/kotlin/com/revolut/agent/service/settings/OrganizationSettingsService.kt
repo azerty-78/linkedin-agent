@@ -12,7 +12,9 @@ import com.revolut.agent.model.settings.OrganizationSettings
 import com.revolut.agent.model.settings.SchedulerFrequency
 import com.revolut.agent.repository.linkedin.LinkedInConnectionRepository
 import com.revolut.agent.repository.settings.OrganizationSettingsRepository
+import com.revolut.agent.service.linkedin.LinkedInAppService
 import org.slf4j.LoggerFactory
+import org.springframework.context.annotation.Lazy
 import org.springframework.stereotype.Service
 import reactor.core.publisher.Mono
 import java.time.Instant
@@ -33,6 +35,7 @@ class OrganizationSettingsService(
 	private val linkedInConnectionRepository: LinkedInConnectionRepository,
 	private val encryptionService: EncryptionService,
 	private val linkedInProperties: LinkedInProperties,
+	@Lazy private val linkedInAppService: LinkedInAppService,
 ) {
 
 	private val log = LoggerFactory.getLogger(javaClass)
@@ -52,6 +55,7 @@ class OrganizationSettingsService(
 				}
 			}
 			.map(::toResponse)
+			.flatMap(::overlayActiveLinkedInApp)
 
 	fun listAvailableModels(): LlmModelsCatalogResponse =
 		LlmModelsCatalogResponse(
@@ -126,12 +130,9 @@ class OrganizationSettingsService(
 									encryptedGeminiKey = resolveEncryptedKey(base.encryptedGeminiKey, request.geminiApiKey),
 									linkedInOrganizationId = request.linkedInOrganizationId?.trim()?.takeIf { it.isNotEmpty() }
 										?: base.linkedInOrganizationId,
-									linkedInClientId = resolveOptionalClearable(base.linkedInClientId, request.linkedInClientId),
-									encryptedLinkedInClientSecret = resolveLinkedInClientSecret(
-										base.encryptedLinkedInClientSecret,
-										request.linkedInClientSecret,
-										request.clearLinkedInClientSecret == true,
-									),
+									// Credentials LinkedIn : gérés via /api/linkedin/apps — écriture settings ignorée
+									linkedInClientId = base.linkedInClientId,
+									encryptedLinkedInClientSecret = base.encryptedLinkedInClientSecret,
 									// redirect / scopes : 100 % serveur (linkedin.redirect-uri / oauth-scopes) — ignore PUT
 									linkedInRedirectUri = base.linkedInRedirectUri,
 									linkedInOauthScopes = base.linkedInOauthScopes,
@@ -149,57 +150,22 @@ class OrganizationSettingsService(
 					)
 			}
 			.map(::toResponse)
+			.flatMap(::overlayActiveLinkedInApp)
 
 	/**
-	 * Credentials app LinkedIn (client id/secret) depuis la DB — plus depuis .env.
+	 * Credentials de l’**app LinkedIn active** (`/api/linkedin/apps`).
+	 * Les champs settings `linkedInClientId/Secret` sont legacy (écriture ignorée).
 	 */
 	fun getLinkedInAppCredentials(): Mono<LinkedInAppCredentials> =
-		findOrCreateSettings()
-			.flatMap { settings ->
-				val clientId = settings.linkedInClientId?.trim().orEmpty()
-				if (clientId.isBlank()) {
-					return@flatMap Mono.error(
-						IllegalStateException(
-							"LinkedIn client ID manquant. Configurez-le via PUT /api/settings (linkedInClientId).",
-						),
-					)
-				}
-				val secretEncrypted = settings.encryptedLinkedInClientSecret
-				if (secretEncrypted.isNullOrBlank()) {
-					return@flatMap Mono.error(
-						IllegalStateException(
-							"LinkedIn client secret manquant. Configurez-le via PUT /api/settings (linkedInClientSecret).",
-						),
-					)
-				}
-				val secret = encryptionService.tryDecrypt(secretEncrypted)
-					?: return@flatMap Mono.error(
-						IllegalStateException(
-							"LinkedIn client secret illisible (ENCRYPTION_KEY?). Re-saisissez linkedInClientSecret.",
-						),
-					)
-				val redirect = linkedInProperties.redirectUri
-				val scopes = linkedInProperties.oauthScopes
-				Mono.just(
-					LinkedInAppCredentials(
-						clientId = clientId,
-						clientSecret = secret,
-						redirectUri = redirect,
-						oauthScopes = scopes,
-					),
-				)
-			}
+		linkedInAppService.getActiveCredentials()
 
 	/** Id du compte LinkedIn actif, ou chaîne vide s'il n'y en a pas. */
 	fun getActiveLinkedInAccountId(): Mono<String> =
 		findOrCreateSettings().map { it.activeLinkedInAccountId.orEmpty() }
 
-	/** Présence Client ID + secret chiffré (sans déchiffrer). */
+	/** Présence d’une app active avec secret. */
 	fun hasLinkedInAppCredentials(): Mono<Boolean> =
-		findOrCreateSettings().map { settings ->
-			!settings.linkedInClientId.isNullOrBlank() &&
-				!settings.encryptedLinkedInClientSecret.isNullOrBlank()
-		}
+		linkedInAppService.hasActiveAppWithSecret()
 
 	fun setActiveLinkedInAccountId(accountId: String?): Mono<OrganizationSettings> =
 		validateActiveLinkedInAccountId(accountId)
@@ -382,6 +348,19 @@ class OrganizationSettingsService(
 			schedulerAnchorDate = settings.schedulerAnchorDate,
 			updatedAt = settings.updatedAt,
 		)
+
+	/** Affiche Client ID / secret masqué de l’app active (source de vérité multi-apps). */
+	private fun overlayActiveLinkedInApp(
+		response: OrganizationSettingsResponse,
+	): Mono<OrganizationSettingsResponse> =
+		linkedInAppService.listApps()
+			.map { list ->
+				val active = list.apps.firstOrNull { it.isActive } ?: return@map response
+				response.copy(
+					linkedInClientId = active.clientId,
+					linkedInClientSecretMasked = active.clientSecretMasked,
+				)
+			}
 
 	/**
 	 * Persiste l’ancre EVERY_N_DAYS si absente (appelé par le scheduler).

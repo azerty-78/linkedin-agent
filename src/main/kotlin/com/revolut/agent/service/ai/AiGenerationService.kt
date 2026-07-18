@@ -28,17 +28,36 @@ class AiGenerationService(
 		generators.associateBy { it.provider }
 
 	/**
-	 * Génération réelle : respecte le provider + modèles choisis dans `/api/settings`.
-	 * Settings rechargés à chaque appel (brief frais).
+	 * Vérifie qu’une clé est configurée pour le provider (override ou activeLlmProvider).
+	 * Utilisé avant de créer un run publication (422 si absente).
 	 */
-	fun generateDailyTip(): Mono<GeneratedContentResponse> =
+	fun requireProviderReady(llmProviderOverride: LlmProvider? = null): Mono<LlmProvider> =
 		organizationSettingsService.getSettings()
 			.flatMap { settings ->
-				val provider = settings.activeLlmProvider
+				val provider = llmProviderOverride ?: settings.activeLlmProvider
+				if (!hasConfiguredKey(settings, provider)) {
+					Mono.error(
+						AiGenerationException(
+							"Clé API $provider manquante. Configurez-la dans Paramètres.",
+						),
+					)
+				} else {
+					Mono.just(provider)
+				}
+			}
+
+	/**
+	 * Génération réelle : provider = [llmProviderOverride] ou `activeLlmProvider` (scheduler / défaut).
+	 * Settings rechargés à chaque appel (brief frais).
+	 */
+	fun generateDailyTip(llmProviderOverride: LlmProvider? = null): Mono<GeneratedContentResponse> =
+		organizationSettingsService.getSettings()
+			.flatMap { settings ->
+				val provider = llmProviderOverride ?: settings.activeLlmProvider
 				if (!hasConfiguredKey(settings, provider)) {
 					return@flatMap Mono.error(
 						AiGenerationException(
-							"No API key configured for provider $provider, please configure it in /api/settings",
+							"Clé API $provider manquante. Configurez-la dans Paramètres.",
 						),
 					)
 				}

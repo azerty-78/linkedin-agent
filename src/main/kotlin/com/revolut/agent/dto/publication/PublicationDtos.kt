@@ -4,6 +4,7 @@ import com.revolut.agent.model.publication.PublicationStatus
 import com.revolut.agent.model.publication.PublicationTriggerType
 import com.revolut.agent.model.publication.StepName
 import com.revolut.agent.model.publication.StepStatus
+import com.revolut.agent.model.settings.LlmProvider
 import java.time.Instant
 
 data class PublicationStepResponse(
@@ -28,6 +29,11 @@ data class PublicationResponse(
 data class PublicationListResponse(
 	val publications: List<PublicationResponse>,
 	val total: Long,
+)
+
+data class TriggerPublicationRequest(
+	/** Override provider ; sinon `activeLlmProvider` des settings (scheduler / fallback). */
+	val llmProvider: LlmProvider? = null,
 )
 
 data class TriggerPublicationResponse(

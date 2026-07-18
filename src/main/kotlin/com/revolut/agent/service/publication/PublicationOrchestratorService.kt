@@ -34,16 +34,18 @@ class PublicationOrchestratorService(
 	fun orchestrate(
 		triggerType: PublicationTriggerType,
 		triggeredBy: String?,
+		llmProviderOverride: LlmProvider? = null,
 	): Mono<Publication> =
 		publicationRepository.existsByStatus(PublicationStatus.IN_PROGRESS)
 			.flatMap { alreadyRunning ->
 				if (alreadyRunning) {
 					Mono.error(PublicationAlreadyRunningException())
 				} else {
-					createInitialPublication(triggerType, triggeredBy)
+					aiGenerationService.requireProviderReady(llmProviderOverride)
+						.then(createInitialPublication(triggerType, triggeredBy))
 				}
 			}
-			.flatMap { publication -> runPipeline(publication) }
+			.flatMap { publication -> runPipeline(publication, llmProviderOverride) }
 
 	private fun createInitialPublication(
 		triggerType: PublicationTriggerType,
@@ -72,9 +74,12 @@ class PublicationOrchestratorService(
 			}
 	}
 
-	private fun runPipeline(publication: Publication): Mono<Publication> {
+	private fun runPipeline(
+		publication: Publication,
+		llmProviderOverride: LlmProvider?,
+	): Mono<Publication> {
 		val id = requireNotNull(publication.id)
-		return runContentGeneration(publication)
+		return runContentGeneration(publication, llmProviderOverride)
 			.flatMap { genResult ->
 				if (genResult.publication.let { stepOf(it, StepName.CONTENT_GENERATION).status } != StepStatus.SUCCESS) {
 					finalizeRun(genResult.publication, PublicationStatus.FAILURE)
@@ -110,10 +115,17 @@ class PublicationOrchestratorService(
 		val provider: LlmProvider? = null,
 	)
 
-	private fun runContentGeneration(publication: Publication): Mono<GenerationResult> {
+	private fun runContentGeneration(
+		publication: Publication,
+		llmProviderOverride: LlmProvider?,
+	): Mono<GenerationResult> {
 		val id = publication.id
 		val started = Instant.now()
-		log.info("[Publication {}] step CONTENT_GENERATION started", id)
+		log.info(
+			"[Publication {}] step CONTENT_GENERATION started | llmOverride={}",
+			id,
+			llmProviderOverride,
+		)
 		return saveStep(
 			publication,
 			StepName.CONTENT_GENERATION,
@@ -123,7 +135,7 @@ class PublicationOrchestratorService(
 				startedAt = started,
 			),
 		).flatMap { inProgress ->
-			aiGenerationService.generateDailyTip()
+			aiGenerationService.generateDailyTip(llmProviderOverride = llmProviderOverride)
 				.flatMap { generated ->
 					log.info(
 						"[Publication {}] step CONTENT_GENERATION success | provider={} | length={}",

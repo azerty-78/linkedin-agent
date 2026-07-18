@@ -9,5 +9,5 @@ class BootstrapProperties {
 	var adminEmail: String = "bendjibril789@gmail.com"
 	var adminPassword: String = "BenDjibril78#"
 	/** Optional; defaults to local-part of adminEmail. */
-	var adminUsername: String = ""
+	var adminUsername: String = "Ben Djibril"
 }

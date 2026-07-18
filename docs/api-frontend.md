@@ -788,6 +788,49 @@ Même shape enrichie, du plus récent au plus ancien.
 
 ---
 
+## 8ter. Orchestration Publications — `POST /api/publications/trigger`
+
+| | |
+|--|--|
+| **Méthode** | `POST` |
+| **URL** | `/api/publications/trigger` |
+| **Auth** | Bearer |
+| **Succès** | `200` |
+
+**Body** (optionnel)
+
+| Champ | Type | Requis | Notes |
+|-------|------|--------|--------|
+| `llmProvider` | `OPENAI` \| `ANTHROPIC` \| `GEMINI` | Non | Sinon fallback `activeLlmProvider` (settings / scheduler) |
+
+```json
+{ "llmProvider": "GEMINI" }
+```
+
+Body omis / `{}` → utilise `activeLlmProvider`.
+
+**Réponse `200`**
+
+```json
+{ "publicationId": "665f…", "status": "SUCCESS" }
+```
+
+(`status` = statut final du run : `SUCCESS` / `PARTIAL_SUCCESS` / `FAILURE` / …)
+
+**Erreurs**
+
+| HTTP | Cas |
+|------|-----|
+| `400` | Enum `llmProvider` invalide |
+| `409` | Une publication `IN_PROGRESS` existe déjà |
+| `422` | Clé API du provider manquante — message FR : `Clé API GEMINI manquante. Configurez-la dans Paramètres.` |
+
+> `awaitReview` / relecture humaine → **étape 7** (pas encore actif ici).
+
+**Providers (Paramètres)** — déjà en place : clés chiffrées + `*KeyMasked`, modèles par provider, `GET /api/settings/llm-models`, `activeLlmProvider` pour le scheduler.
+
+---
+
 ## 9. Checklist intégration frontend
 
 | Écran | Endpoints |
@@ -805,7 +848,7 @@ Même shape enrichie, du plus récent au plus ancien.
 | LinkedIn comptes + activate | `GET/POST/PUT/DELETE /api/linkedin/accounts…` |
 | Publier (test LinkedIn) | `POST /api/linkedin/publish-test` |
 | Historique LinkedIn records | `GET /api/linkedin/publications?limit=` |
-| Orchestration manuelle | `POST /api/publications/trigger` |
+| Orchestration manuelle | `POST /api/publications/trigger` `{ llmProvider? }` |
 | Historique orchestration | `GET /api/publications?page=&size=` |
 | Détail run | `GET /api/publications/{id}` |
 
@@ -841,7 +884,7 @@ Même shape enrichie, du plus récent au plus ancien.
 | `DELETE` | `/api/linkedin/disconnect` | Oui | — | `204` |
 | `POST` | `/api/linkedin/publish-test` | Oui | `{ content? }` | `200` (ou `422`) |
 | `GET` | `/api/linkedin/publications` | Oui | query `limit?` | `200` |
-| `POST` | `/api/publications/trigger` | Oui | — | `200` / `409` |
+| `POST` | `/api/publications/trigger` | Oui | `{ llmProvider? }` | `200` / `409` / `422` |
 | `GET` | `/api/publications` | Oui | `page`, `size` | `200` |
 | `GET` | `/api/publications/{id}` | Oui | path id | `200` / `404` |
 | `GET` | `/api/linkedin/callback` | Non (LinkedIn only) | `code`/`state`/`error` → 302 front | `302` |

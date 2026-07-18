@@ -6,6 +6,7 @@ import com.revolut.agent.dto.publication.PublicationStepResponse
 import com.revolut.agent.dto.publication.TriggerPublicationResponse
 import com.revolut.agent.model.publication.Publication
 import com.revolut.agent.model.publication.PublicationTriggerType
+import com.revolut.agent.model.settings.LlmProvider
 import com.revolut.agent.repository.publication.PublicationRepository
 import org.springframework.stereotype.Service
 import reactor.core.publisher.Mono
@@ -16,10 +17,14 @@ class PublicationQueryService(
 	private val publicationOrchestratorService: PublicationOrchestratorService,
 ) {
 
-	fun triggerManual(adminEmail: String): Mono<TriggerPublicationResponse> =
+	fun triggerManual(
+		adminEmail: String,
+		llmProvider: LlmProvider? = null,
+	): Mono<TriggerPublicationResponse> =
 		publicationOrchestratorService.orchestrate(
 			triggerType = PublicationTriggerType.MANUAL,
 			triggeredBy = adminEmail,
+			llmProviderOverride = llmProvider,
 		).map { pub ->
 			TriggerPublicationResponse(
 				publicationId = requireNotNull(pub.id),

@@ -143,7 +143,11 @@ class GlobalExceptionHandler {
 	fun handleAiGenerationException(
 		ex: AiGenerationException,
 	): Mono<ResponseEntity<Map<String, Any>>> {
-		val status = if (ex.message?.contains("No API key configured", ignoreCase = true) == true) {
+		val status = if (
+			ex.message?.contains("No API key configured", ignoreCase = true) == true ||
+			ex.message?.contains("Clé API", ignoreCase = true) == true ||
+			ex.message?.contains("manquante", ignoreCase = true) == true
+		) {
 			HttpStatus.UNPROCESSABLE_ENTITY
 		} else {
 			HttpStatus.BAD_REQUEST

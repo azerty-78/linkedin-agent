@@ -1,6 +1,11 @@
 package com.revolut.agent.dto.settings
 
+import com.revolut.agent.model.settings.BrandTone
+import com.revolut.agent.model.settings.ContentFormat
+import com.revolut.agent.model.settings.ContentLanguage
+import com.revolut.agent.model.settings.EmojiPolicy
 import com.revolut.agent.model.settings.LlmProvider
+import com.revolut.agent.model.settings.PostLengthPreference
 import jakarta.validation.constraints.Max
 import jakarta.validation.constraints.Min
 import jakarta.validation.constraints.NotBlank
@@ -25,7 +30,44 @@ data class UpdateOrganizationSettingsRequest(
 	val websiteUrl: String? = null,
 
 	@field:NotBlank
+	@field:Size(max = 2000)
 	val contentTopic: String,
+
+	val contentLanguage: ContentLanguage? = null,
+	val brandTone: BrandTone? = null,
+
+	@field:Size(max = 2000)
+	val targetAudience: String? = null,
+
+	@field:Size(max = 4000)
+	val brandGuidelines: String? = null,
+
+	@field:Size(max = 300)
+	val defaultHashtags: String? = null,
+
+	@field:Size(max = 2000)
+	val contentPillars: String? = null,
+
+	@field:Size(max = 2000)
+	val topicsToAvoid: String? = null,
+
+	@field:Size(max = 2000)
+	val contentGoals: String? = null,
+
+	/** Max 6 uniques ; `null` = conserver ; `[]` = vider. */
+	val preferredFormats: List<ContentFormat>? = null,
+
+	@field:Size(max = 500)
+	val callToActionPreference: String? = null,
+
+	val emojiPolicy: EmojiPolicy? = null,
+	val postLengthPreference: PostLengthPreference? = null,
+
+	@field:Size(max = 500)
+	val mustIncludeKeywords: String? = null,
+
+	@field:Size(max = 4000)
+	val examplePostStyle: String? = null,
 
 	@field:Min(0)
 	@field:Max(23)

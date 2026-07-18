@@ -5,6 +5,7 @@ import com.revolut.agent.dto.settings.LlmModelOptionResponse
 import com.revolut.agent.dto.settings.LlmModelsCatalogResponse
 import com.revolut.agent.dto.settings.OrganizationSettingsResponse
 import com.revolut.agent.dto.settings.UpdateOrganizationSettingsRequest
+import com.revolut.agent.model.settings.ContentFormat
 import com.revolut.agent.model.settings.LlmModelCatalog
 import com.revolut.agent.model.settings.LlmProvider
 import com.revolut.agent.model.settings.OrganizationSettings
@@ -82,6 +83,7 @@ class OrganizationSettingsService(
 						Mono.defer {
 							val websiteUrl = normalizeOptionalText(request.websiteUrl, maxLen = 500)
 							validateWebsiteUrl(websiteUrl)
+							val preferredFormats = resolvePreferredFormats(base.preferredFormats, request.preferredFormats)
 							organizationSettingsRepository.save(
 								base.copy(
 									companyName = request.companyName.trim(),
@@ -89,6 +91,20 @@ class OrganizationSettingsService(
 									industry = normalizeOptionalText(request.industry, maxLen = 120),
 									websiteUrl = websiteUrl,
 									contentTopic = request.contentTopic.trim(),
+									contentLanguage = request.contentLanguage ?: base.contentLanguage,
+									brandTone = request.brandTone ?: base.brandTone,
+									targetAudience = normalizeOptionalText(request.targetAudience, maxLen = 2000),
+									brandGuidelines = normalizeOptionalText(request.brandGuidelines, maxLen = 4000),
+									defaultHashtags = normalizeOptionalText(request.defaultHashtags, maxLen = 300),
+									contentPillars = normalizeOptionalText(request.contentPillars, maxLen = 2000),
+									topicsToAvoid = normalizeOptionalText(request.topicsToAvoid, maxLen = 2000),
+									contentGoals = normalizeOptionalText(request.contentGoals, maxLen = 2000),
+									preferredFormats = preferredFormats,
+									callToActionPreference = normalizeOptionalText(request.callToActionPreference, maxLen = 500),
+									emojiPolicy = request.emojiPolicy ?: base.emojiPolicy,
+									postLengthPreference = request.postLengthPreference ?: base.postLengthPreference,
+									mustIncludeKeywords = normalizeOptionalText(request.mustIncludeKeywords, maxLen = 500),
+									examplePostStyle = normalizeOptionalText(request.examplePostStyle, maxLen = 4000),
 									publishHourUtc = request.publishHourUtc,
 									timezone = request.timezone.trim(),
 									activeLlmProvider = request.activeLlmProvider,
@@ -316,6 +332,20 @@ class OrganizationSettingsService(
 			industry = settings.industry,
 			websiteUrl = settings.websiteUrl,
 			contentTopic = settings.contentTopic,
+			contentLanguage = settings.contentLanguage,
+			brandTone = settings.brandTone,
+			targetAudience = settings.targetAudience,
+			brandGuidelines = settings.brandGuidelines,
+			defaultHashtags = settings.defaultHashtags,
+			contentPillars = settings.contentPillars,
+			topicsToAvoid = settings.topicsToAvoid,
+			contentGoals = settings.contentGoals,
+			preferredFormats = settings.preferredFormats.distinct().take(6),
+			callToActionPreference = settings.callToActionPreference,
+			emojiPolicy = settings.emojiPolicy,
+			postLengthPreference = settings.postLengthPreference,
+			mustIncludeKeywords = settings.mustIncludeKeywords,
+			examplePostStyle = settings.examplePostStyle,
 			publishHourUtc = settings.publishHourUtc,
 			timezone = settings.timezone,
 			activeLlmProvider = settings.activeLlmProvider,
@@ -334,6 +364,20 @@ class OrganizationSettingsService(
 			schedulerEnabled = settings.schedulerEnabled,
 			updatedAt = settings.updatedAt,
 		)
+
+	private fun resolvePreferredFormats(
+		existing: List<ContentFormat>,
+		incoming: List<ContentFormat>?,
+	): List<ContentFormat> {
+		if (incoming == null) {
+			return existing.distinct().take(6)
+		}
+		val distinct = incoming.distinct()
+		if (distinct.size > 6) {
+			throw IllegalArgumentException("preferredFormats: max 6 unique values")
+		}
+		return distinct
+	}
 
 	/** `null` / blank → null (vider) ; sinon trim + max length. */
 	private fun normalizeOptionalText(value: String?, maxLen: Int): String? {

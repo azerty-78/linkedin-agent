@@ -1,6 +1,11 @@
 package com.revolut.agent.dto.settings
 
+import com.revolut.agent.model.settings.BrandTone
+import com.revolut.agent.model.settings.ContentFormat
+import com.revolut.agent.model.settings.ContentLanguage
+import com.revolut.agent.model.settings.EmojiPolicy
 import com.revolut.agent.model.settings.LlmProvider
+import com.revolut.agent.model.settings.PostLengthPreference
 import java.time.Instant
 
 data class OrganizationSettingsResponse(
@@ -9,6 +14,20 @@ data class OrganizationSettingsResponse(
 	val industry: String?,
 	val websiteUrl: String?,
 	val contentTopic: String,
+	val contentLanguage: ContentLanguage,
+	val brandTone: BrandTone,
+	val targetAudience: String?,
+	val brandGuidelines: String?,
+	val defaultHashtags: String?,
+	val contentPillars: String?,
+	val topicsToAvoid: String?,
+	val contentGoals: String?,
+	val preferredFormats: List<ContentFormat>,
+	val callToActionPreference: String?,
+	val emojiPolicy: EmojiPolicy,
+	val postLengthPreference: PostLengthPreference,
+	val mustIncludeKeywords: String?,
+	val examplePostStyle: String?,
 	val publishHourUtc: Int,
 	val timezone: String,
 	val activeLlmProvider: LlmProvider,

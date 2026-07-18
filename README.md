@@ -1,6 +1,6 @@
 # LinkedIn Agent — Revolut Consulting
 
-Backend Spring Boot (WebFlux / Kotlin) qui automatise la génération de contenus LinkedIn via LLM, la gestion d’abonnés newsletter et la configuration organisationnelle.
+Backend Spring Boot (WebFlux / Kotlin) qui automatise la génération de contenus LinkedIn via LLM et la configuration organisationnelle.
 
 Documentation détaillée (rôles, permissions, features, API) : [`docs/fonctionnalites-et-securite.md`](docs/fonctionnalites-et-securite.md)
 
@@ -82,12 +82,12 @@ Utiliser ensuite le header `Authorization: Bearer <accessToken>` sur les routes 
 ```
 src/main/kotlin/com/revolut/agent/
 ├── config/          # Security, JWT, bootstrap, chiffrement, logs
-├── controller/      # auth | settings | subscriber | ai
+├── controller/      # auth | settings | ai | linkedin | publications
 ├── dto/             # DTOs par domaine
 ├── exception/
-├── model/           # user | settings | subscriber
+├── model/           # user | settings | linkedin | publication
 ├── repository/
-└── service/         # auth | settings | subscriber | ai
+└── service/         # auth | settings | ai | linkedin | publication
 ```
 
 ---
@@ -96,7 +96,6 @@ src/main/kotlin/com/revolut/agent/
 
 - **Auth JWT** — login, profil `/me`, bootstrap admin
 - **Paramètres organisation** — topic, timezone, provider LLM, clés API chiffrées (AES-256-GCM)
-- **Abonnés** — CRUD admin + désabonnement public par token
 - **Génération IA** — tip LinkedIn via OpenAI / Anthropic (Gemini stub)
 - **Observabilité** — logs structurés (requestId, durée, principal), Actuator
 

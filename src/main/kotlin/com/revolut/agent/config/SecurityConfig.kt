@@ -63,7 +63,6 @@ class SecurityConfig(
 				exchanges
 					.pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 					.pathMatchers("/api/auth/login").permitAll()
-					.pathMatchers("/api/public/**").permitAll()
 					.pathMatchers("/api/linkedin/callback").permitAll()
 					.pathMatchers("/actuator/health/**").permitAll()
 					.anyExchange().authenticated()

@@ -3,10 +3,11 @@
 Documentation destinée au frontend pour brancher / mettre à jour les appels HTTP vers le backend.
 
 **Base URL (dev)** : `http://localhost:8080`  
-**Content-Type** : `application/json` (sauf désabonnement public HTML)  
+**Content-Type** : `application/json`  
 **Auth** : JWT Bearer sur toutes les routes sauf celles marquées **Public**
 
-> Dernière synchro : alignée sur les controllers fonctionnels (`auth`, `settings`, `subscribers`, `ai`, `public`, `actuator/health`).
+> Dernière synchro : alignée sur les controllers fonctionnels (`auth`, `settings`, `ai`, `linkedin`, `publications`, `actuator/health`).  
+> **Changelog** : feature subscribers / newsletter **supprimée** (routes `/api/subscribers*` et `/api/public/unsubscribe*` absentes → 404).
 
 ---
 
@@ -42,20 +43,14 @@ Documentation destinée au frontend pour brancher / mettre à jour les appels HT
 | `400` | Erreur métier / génération IA (quota, clé invalide, etc.) |
 | `401` | Non authentifié / mauvais identifiants |
 | `403` | Interdit |
-| `409` | Conflit (abonné déjà actif) |
+| `409` | Conflit (ex. limite comptes LinkedIn, publication déjà en cours) |
 | `422` | Clé API manquante pour le provider IA |
-| `204` | Succès sans body (DELETE abonné) |
 
 ### Enums
 
 **`LlmProvider`**
 ```text
 OPENAI | ANTHROPIC | GEMINI
-```
-
-**`SubscriberStatus`**
-```text
-ACTIVE | UNSUBSCRIBED
 ```
 
 ### Coûts LLM (important pour l’UI)
@@ -348,134 +343,9 @@ Les anciens modèles `gemini-2.x` indisponibles sont remappés automatiquement.
 
 ---
 
-## 4. Abonnés — `/api/subscribers`
+## 4. Génération IA — `/api/ai`
 
-### 4.1 Créer / réactiver un abonné
-
-| | |
-|--|--|
-| **Méthode** | `POST` |
-| **URL** | `/api/subscribers` |
-| **Auth** | Bearer |
-| **Succès** | `201` |
-
-**Body**
-
-| Champ | Type | Requis | Contraintes |
-|-------|------|--------|-------------|
-| `email` | `string` | Oui | Email valide |
-| `fullName` | `string \| null` | Non | |
-
-```json
-{
-  "email": "user@example.com",
-  "fullName": "Jane Doe"
-}
-```
-
-**Réponse `201`**
-
-| Champ | Type |
-|-------|------|
-| `id` | `string` |
-| `email` | `string` |
-| `fullName` | `string \| null` |
-| `status` | `SubscriberStatus` |
-| `subscribedAt` | `string` (ISO-8601) |
-| `unsubscribedAt` | `string \| null` |
-
-**Erreurs** : `409` — email déjà `ACTIVE`
-
----
-
-### 4.2 Lister les abonnés
-
-| | |
-|--|--|
-| **Méthode** | `GET` |
-| **URL** | `/api/subscribers` |
-| **Auth** | Bearer |
-| **Succès** | `200` |
-
-**Query params**
-
-| Param | Type | Requis | Description |
-|-------|------|--------|-------------|
-| `status` | `ACTIVE` \| `UNSUBSCRIBED` | Non | Filtre ; omis = tous |
-
-Exemples :
-- `GET /api/subscribers`
-- `GET /api/subscribers?status=ACTIVE`
-- `GET /api/subscribers?status=UNSUBSCRIBED`
-
-**Réponse `200`**
-
-| Champ | Type | Description |
-|-------|------|-------------|
-| `subscribers` | `SubscriberResponse[]` | Liste |
-| `totalActive` | `number` | Nombre d’abonnés `ACTIVE` (global) |
-
-```json
-{
-  "subscribers": [
-    {
-      "id": "665f1a2b3c4d5e6f7a8b9c0d",
-      "email": "user@example.com",
-      "fullName": "Jane Doe",
-      "status": "ACTIVE",
-      "subscribedAt": "2026-07-17T10:00:00Z",
-      "unsubscribedAt": null
-    }
-  ],
-  "totalActive": 1
-}
-```
-
----
-
-### 4.3 Supprimer un abonné
-
-| | |
-|--|--|
-| **Méthode** | `DELETE` |
-| **URL** | `/api/subscribers/{id}` |
-| **Auth** | Bearer |
-| **Succès** | `204` (pas de body) |
-
-**Path params**
-
-| Param | Type | Description |
-|-------|------|-------------|
-| `id` | `string` | ID Mongo de l’abonné |
-
-Exemple : `DELETE /api/subscribers/665f1a2b3c4d5e6f7a8b9c0d`
-
----
-
-## 5. Désabonnement public — `/api/public`
-
-### 5.1 Page de désabonnement
-
-| | |
-|--|--|
-| **Méthode** | `GET` |
-| **URL** | `/api/public/unsubscribe/{token}` |
-| **Auth** | Public |
-| **Réponse** | HTML (`text/html`) — page Thymeleaf |
-
-**Path params**
-
-| Param | Type | Description |
-|-------|------|-------------|
-| `token` | `string` | `unsubscribeToken` de l’abonné |
-
-Pas d’usage JSON côté SPA admin : lien mail → navigateur.
-
----
-
-## 6. Génération IA — `/api/ai`
-
-### 6.1 Générer un tip de test
+### 4.1 Générer un tip de test
 
 | | |
 |--|--|
@@ -788,9 +658,6 @@ Même shape enrichie, du plus récent au plus ancien.
 | Guard / header user | `GET /api/auth/me` |
 | Settings org (+ LinkedIn app) | `GET` + `PUT /api/settings` |
 | Dropdowns modèles | `GET /api/settings/llm-models` |
-| Liste abonnés + filtre | `GET /api/subscribers?status=` |
-| Ajout abonné | `POST /api/subscribers` |
-| Suppression | `DELETE /api/subscribers/{id}` |
 | Bouton « Générer un tip » | `POST /api/ai/generate-test` |
 | LinkedIn résumé / Test | `GET /api/linkedin/summary` |
 | LinkedIn compte actif | `GET /api/linkedin/accounts/active` |
@@ -819,10 +686,6 @@ Même shape enrichie, du plus récent au plus ancien.
 | `GET` | `/api/settings` | Oui | — | `200` |
 | `GET` | `/api/settings/llm-models` | Oui | — | `200` |
 | `PUT` | `/api/settings` | Oui | settings (§3.3) | `200` |
-| `POST` | `/api/subscribers` | Oui | `{ email, fullName? }` | `201` |
-| `GET` | `/api/subscribers` | Oui | query `status?` | `200` |
-| `DELETE` | `/api/subscribers/{id}` | Oui | path `id` | `204` |
-| `GET` | `/api/public/unsubscribe/{token}` | Non | path `token` → HTML | `200` |
 | `POST` | `/api/ai/generate-test` | Oui | — | `200` |
 | `GET` | `/api/linkedin/summary` | Oui | — | `200` |
 | `GET` | `/api/linkedin/accounts` | Oui | — | `200` |

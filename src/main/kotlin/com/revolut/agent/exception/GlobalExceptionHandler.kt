@@ -4,7 +4,6 @@ import com.revolut.agent.exception.ai.AiGenerationException
 import com.revolut.agent.exception.linkedin.LinkedInAccountLimitException
 import com.revolut.agent.exception.linkedin.LinkedInPublishingException
 import com.revolut.agent.exception.publication.PublicationAlreadyRunningException
-import com.revolut.agent.exception.subscriber.SubscriberAlreadyActiveException
 import com.revolut.agent.service.linkedin.LinkedInOAuthException
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -123,20 +122,6 @@ class GlobalExceptionHandler {
 					mapOf(
 						"error" to (ex.message ?: "Invalid credentials"),
 						"status" to 401,
-					),
-				),
-		)
-
-	@ExceptionHandler(SubscriberAlreadyActiveException::class)
-	fun handleSubscriberAlreadyActive(
-		ex: SubscriberAlreadyActiveException,
-	): Mono<ResponseEntity<Map<String, Any>>> =
-		Mono.just(
-			ResponseEntity.status(HttpStatus.CONFLICT)
-				.body(
-					mapOf(
-						"error" to (ex.message ?: "A subscriber with this email is already active"),
-						"status" to 409,
 					),
 				),
 		)

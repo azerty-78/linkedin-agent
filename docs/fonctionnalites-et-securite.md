@@ -10,11 +10,11 @@ L’application expose une API REST réactive (WebFlux) pour :
 
 1. Authentifier un administrateur unique (JWT)
 2. Configurer l’organisation et les clés LLM (chiffrées)
-3. Gérer la liste d’abonnés newsletter
-4. Générer un contenu LinkedIn (tip) via le provider LLM actif
-5. Permettre un désabonnement public sans authentification
+3. Générer un contenu LinkedIn (tip) via le provider LLM actif
+4. Publier / orchestrer des publications LinkedIn
 
-État actuel : **mono-admin** (un seul rôle applicatif). Les phases LinkedIn publish / scheduler / envoi mail réel peuvent être absentes ou partielles.
+État actuel : **mono-admin** (un seul rôle applicatif).  
+**Changelog** : feature abonnés / newsletter **supprimée**.
 
 ---
 
@@ -135,20 +135,7 @@ Défauts recommandés pour les **tests** (éviter la facturation) :
 **Chiffrement** : AES-256-GCM (`EncryptionService`), clé `ENCRYPTION_KEY` (Base64, 32 octets).  
 Sans clé en dev : génération éphémère + warning (les données chiffrées ne survivent pas au redémarrage).
 
-### 4.2 Abonnés newsletter (`/api/subscribers`)
-
-| Méthode | Chemin | Auth | Description |
-|---------|--------|------|-------------|
-| `POST` | `/api/subscribers` | Oui | Créer ou **réactiver** un email désinscrit |
-| `GET` | `/api/subscribers?status=` | Oui | Liste (`ACTIVE` / `UNSUBSCRIBED`) |
-| `DELETE` | `/api/subscribers/{id}` | Oui | Suppression (`204`) |
-| `GET` | `/api/public/unsubscribe/{token}` | Non | Page HTML Thymeleaf de confirmation |
-
-Statuts : `SubscriberStatus.ACTIVE` | `UNSUBSCRIBED`.  
-Conflit si email déjà actif → HTTP **409** (`SubscriberAlreadyActiveException`).  
-Chaque abonné a un `unsubscribeToken` UUID unique.
-
-### 4.3 Génération IA (`/api/ai`)
+### 4.2 Génération IA (`/api/ai`)
 
 | Méthode | Chemin | Auth | Description |
 |---------|--------|------|-------------|
@@ -201,10 +188,6 @@ Les clés runtime viennent de Mongo (chiffrées), **pas** des placeholders `spri
 | `GET` | `/api/settings` | Oui | 200 |
 | `GET` | `/api/settings/llm-models` | Oui | 200 |
 | `PUT` | `/api/settings` | Oui | 200 |
-| `POST` | `/api/subscribers` | Oui | 201 |
-| `GET` | `/api/subscribers` | Oui | 200 |
-| `DELETE` | `/api/subscribers/{id}` | Oui | 204 |
-| `GET` | `/api/public/unsubscribe/{token}` | Non | 200 (HTML) |
 | `POST` | `/api/ai/generate-test` | Oui | 200 |
 | `GET` | `/actuator/health` | Non | 200 |
 
@@ -224,7 +207,8 @@ Base : `linkedin_agent_db`
 |------------|--------|-------------|
 | `app_users` | `AppUser` | `email` unique, `passwordHash`, `role`, `lastLoginAt` |
 | `organization_settings` | `OrganizationSettings` | provider actif, clés chiffrées, topic, timezone |
-| `subscribers` | `Subscriber` | `email` unique, `status`, `unsubscribeToken` unique |
+
+> Collection `subscribers` **supprimée** — à dropper manuellement sur chaque environnement : `db.subscribers.drop()`
 
 Index auto : `spring.data.mongodb.auto-index-creation=true`.
 
@@ -238,13 +222,14 @@ com.revolut.agent/
 ├── controller/
 │   ├── auth/
 │   ├── settings/
-│   ├── subscriber/
-│   └── ai/
-├── dto/          (auth | settings | subscriber | ai)
-├── exception/    (ai | subscriber + GlobalExceptionHandler)
-├── model/        (user | settings | subscriber)
-├── repository/   (user | settings | subscriber)
-└── service/      (auth | settings | subscriber | ai)
+│   ├── ai/
+│   ├── linkedin/
+│   └── publication/
+├── dto/          (auth | settings | ai | …)
+├── exception/    (ai | linkedin | publication + GlobalExceptionHandler)
+├── model/        (user | settings | …)
+├── repository/   (user | settings | …)
+└── service/      (auth | settings | ai | …)
 ```
 
 Organisation par **domaine métier** (pas seulement par couche technique).
@@ -273,7 +258,6 @@ Référence locale : `setup/.env` (ne pas committer de secrets réels sur un dé
 |-----------|------|--------|
 | Identifiants invalides / JWT manquant | 401 | Security / Auth |
 | Accès refusé | 403 | Security |
-| Abonné déjà actif | 409 | `SubscriberAlreadyActiveException` |
 | Clé LLM absente | 422 | `AiGenerationException` |
 | Échec génération LLM (autre) | 400 | `AiGenerationException` |
 
@@ -292,4 +276,4 @@ Référence locale : `setup/.env` (ne pas committer de secrets réels sur un dé
 
 ---
 
-*Dernière mise à jour : documentation alignée sur la structure par domaines (auth, settings, subscriber, ai, user) et le modèle de sécurité mono-admin JWT.*
+*Dernière mise à jour : feature subscribers / newsletter retirée ; structure par domaines (auth, settings, ai, linkedin, publications) et modèle de sécurité mono-admin JWT.*

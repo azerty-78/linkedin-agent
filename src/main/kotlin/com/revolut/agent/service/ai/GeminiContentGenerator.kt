@@ -43,20 +43,32 @@ class GeminiContentGenerator(
 				.contentType(MediaType.APPLICATION_JSON)
 				.accept(MediaType.APPLICATION_JSON)
 				.bodyValue(
-					mapOf(
-						"contents" to listOf(
+					buildMap {
+						put(
+							"systemInstruction",
 							mapOf(
-								"role" to "user",
-								"parts" to listOf(
-									mapOf("text" to command.prompt),
+								"parts" to listOf(mapOf("text" to command.systemPrompt)),
+							),
+						)
+						put(
+							"contents",
+							listOf(
+								mapOf(
+									"role" to "user",
+									"parts" to listOf(
+										mapOf("text" to command.userPrompt),
+									),
 								),
 							),
-						),
-						"generationConfig" to mapOf(
-							"maxOutputTokens" to command.maxOutputTokens,
-							"temperature" to 0.7,
-						),
-					),
+						)
+						put(
+							"generationConfig",
+							mapOf(
+								"maxOutputTokens" to command.maxOutputTokens,
+								"temperature" to 0.7,
+							),
+						)
+					},
 				)
 				.retrieve()
 				.awaitBody<Map<String, Any>>()

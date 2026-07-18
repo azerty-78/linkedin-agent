@@ -16,7 +16,8 @@ import java.time.Instant
 @Service
 class AiGenerationService(
 	private val organizationSettingsService: OrganizationSettingsService,
-	private val promptBuilderService: PromptBuilderService,
+	private val promptContextBuilder: PromptContextBuilder,
+	private val contentPostProcessor: ContentPostProcessor,
 	private val aiModelProperties: AiModelProperties,
 	generators: List<AiContentGenerator>,
 ) {
@@ -28,6 +29,7 @@ class AiGenerationService(
 
 	/**
 	 * Génération réelle : respecte le provider + modèles choisis dans `/api/settings`.
+	 * Settings rechargés à chaque appel (brief frais).
 	 */
 	fun generateDailyTip(): Mono<GeneratedContentResponse> =
 		organizationSettingsService.getSettings()
@@ -40,19 +42,19 @@ class AiGenerationService(
 						),
 					)
 				}
-				generateWithProvider(
+				val model = resolveConfiguredModel(settings, provider)
+				val brief = promptContextBuilder.build(
 					settings = settings,
 					provider = provider,
-					model = resolveConfiguredModel(settings, provider),
-					prompt = promptBuilderService.buildDailyTipPrompt(settings.contentTopic),
-					maxOutputTokens = productionMaxTokens(provider),
-					mode = "production",
+					model = model,
+					compact = false,
 				)
+				generateWithBrief(settings, brief, productionMaxTokens(provider), mode = "production")
 			}
 
 	/**
 	 * Endpoint de test uniquement : modèles faibles / free, peu de tokens.
-	 * Ignore les modèles « premium » choisis en settings.
+	 * Même PromptContextBuilder (brief settings), mode compact.
 	 */
 	fun generateDailyTipForTest(): Mono<GeneratedContentResponse> =
 		organizationSettingsService.getSettings()
@@ -67,88 +69,96 @@ class AiGenerationService(
 					)
 				}
 
-				generateWithProvider(
+				val model = resolveTestModel(provider)
+				val brief = promptContextBuilder.build(
 					settings = settings,
 					provider = provider,
-					model = resolveTestModel(provider),
-					prompt = promptBuilderService.buildTestTipPrompt(settings.contentTopic),
-					maxOutputTokens = aiModelProperties.test.maxOutputTokens,
-					mode = "test",
-				).onErrorResume { error ->
-					if (!isQuotaOrRateLimit(error) || provider == LlmProvider.GEMINI) {
-						return@onErrorResume Mono.error(error)
-					}
-					if (!hasConfiguredKey(settings, LlmProvider.GEMINI)) {
-						return@onErrorResume Mono.error(
-							AiGenerationException(
-								"Paid provider quota exceeded during test. " +
-									"Add a Gemini API key for free-tier tests (model ${aiModelProperties.test.geminiModel}).",
-								error,
-							),
+					model = model,
+					compact = true,
+				)
+				generateWithBrief(settings, brief, aiModelProperties.test.maxOutputTokens, mode = "test")
+					.onErrorResume { error ->
+						if (!isQuotaOrRateLimit(error) || provider == LlmProvider.GEMINI) {
+							return@onErrorResume Mono.error(error)
+						}
+						if (!hasConfiguredKey(settings, LlmProvider.GEMINI)) {
+							return@onErrorResume Mono.error(
+								AiGenerationException(
+									"Paid provider quota exceeded during test. " +
+										"Add a Gemini API key for free-tier tests (model ${aiModelProperties.test.geminiModel}).",
+									error,
+								),
+							)
+						}
+						log.warn("Test generation quota on {} — falling back to weak Gemini model", provider)
+						val fallbackModel = resolveTestModel(LlmProvider.GEMINI)
+						val fallbackBrief = promptContextBuilder.build(
+							settings = settings,
+							provider = LlmProvider.GEMINI,
+							model = fallbackModel,
+							compact = true,
+						)
+						generateWithBrief(
+							settings,
+							fallbackBrief,
+							aiModelProperties.test.maxOutputTokens,
+							mode = "test-fallback",
 						)
 					}
-					log.warn("Test generation quota on {} — falling back to weak Gemini model", provider)
-					generateWithProvider(
-						settings = settings,
-						provider = LlmProvider.GEMINI,
-						model = resolveTestModel(LlmProvider.GEMINI),
-						prompt = promptBuilderService.buildTestTipPrompt(settings.contentTopic),
-						maxOutputTokens = aiModelProperties.test.maxOutputTokens,
-						mode = "test-fallback",
-					)
-				}
 			}
 
-	private fun generateWithProvider(
+	private fun generateWithBrief(
 		settings: OrganizationSettingsResponse,
-		provider: LlmProvider,
-		model: String,
-		prompt: String,
+		brief: ContentBrief,
 		maxOutputTokens: Int,
 		mode: String,
 	): Mono<GeneratedContentResponse> {
-		val generator = generatorsByProvider[provider]
-			?: return Mono.error(AiGenerationException("No AI content generator registered for provider $provider"))
+		val generator = generatorsByProvider[brief.provider]
+			?: return Mono.error(AiGenerationException("No AI content generator registered for provider ${brief.provider}"))
 
 		val generationStartedAt = System.currentTimeMillis()
 		log.info(
-			"AI generation started | mode={} | provider={} | model={} | maxOutputTokens={} | topicLength={}",
+			"AI generation started | mode={} | provider={} | model={} | maxOutputTokens={} | topicLength={} | format={} | lang={}",
 			mode,
-			provider,
-			model,
+			brief.provider,
+			brief.model,
 			maxOutputTokens,
 			settings.contentTopic.length,
+			brief.formatChosen,
+			brief.language,
 		)
 
-		return organizationSettingsService.getDecryptedKeyFor(provider)
+		return organizationSettingsService.getDecryptedKeyFor(brief.provider)
 			.flatMap { apiKey ->
 				mono {
 					generator.generate(
 						AiGenerationCommand(
 							apiKey = apiKey,
-							prompt = prompt,
-							model = model,
+							systemPrompt = brief.systemPrompt,
+							userPrompt = brief.userPrompt,
+							model = brief.model,
 							maxOutputTokens = maxOutputTokens,
 						),
 					)
-				}.map { content ->
+				}.map { raw ->
+					val content = contentPostProcessor.process(raw, brief)
 					val durationMs = System.currentTimeMillis() - generationStartedAt
 					log.info(
 						"AI generation succeeded | mode={} | provider={} | model={} | contentLength={} | durationMs={}",
 						mode,
-						provider,
-						model,
+						brief.provider,
+						brief.model,
 						content.length,
 						durationMs,
 					)
 					GeneratedContentResponse(
 						content = content,
-						provider = provider,
-						model = model,
+						provider = brief.provider,
+						model = brief.model,
 						generatedAt = Instant.now(),
-						promptUsed = prompt,
+						promptUsed = brief.combinedPrompt(),
 					)
-				}.onErrorMap { error -> toAiGenerationException(provider, model, error) }
+				}.onErrorMap { error -> toAiGenerationException(brief.provider, brief.model, error) }
 			}
 	}
 

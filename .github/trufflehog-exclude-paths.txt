@@ -1,0 +1,8 @@
+# Chemins exclus du scan TruffleHog (filesystem)
+# Un chemin par ligne (glob relatif à la racine du repo)
+setup/.env
+setup/.env.local
+**/.env
+**/hs_err_pid*
+**/replay_pid*
+**/*.log

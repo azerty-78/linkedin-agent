@@ -1,0 +1,37 @@
+# Build context = racine du repo
+**/.DS_Store
+**/.git
+**/.gitignore
+**/.idea
+**/.vscode
+**/.cursor
+**/agent-transcripts
+**/*.iml
+**/*.log
+**/hs_err_pid*
+**/replay_pid*
+
+# Secrets / env locaux
+**/.env
+**/.env.local
+**/setup/.env
+**/src/main/resources/application-prod.properties
+
+# Build artifacts
+**/.gradle
+**/build
+**/out
+**/target
+**/.kotlin
+
+# Docs / CI non nécessaires dans l'image
+**/docs
+**/.github
+**/HELP.md
+**/README.md
+
+# Docker meta (éviter boucles)
+**/setup/compose.prod.yaml
+**/setup/docker-compose.yml
+**/setup/.env.example
+**/setup/.env.prod.example

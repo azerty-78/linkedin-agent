@@ -1,0 +1,663 @@
+# =============================================================================
+# CI/CD — Revolut LinkedIn Agent (Spring Boot / Kotlin + MongoDB)
+#
+# ÉTAT ACTUEL : DÉSACTIVÉ en automatique (pas de push/PR).
+# Seul `workflow_dispatch` est actif (lancement manuel depuis l’onglet Actions).
+# Push images + deploy : uniquement si la variable repo ENABLE_CICD_DEPLOY=true
+#   (Settings → Variables) — même en manuel, sinon arrêt après docker-build.
+# Quand prêt pour la prod :
+#   1) Décommenter le bloc `push` / `pull_request` / `tags` ci-dessous
+#   2) Définir ENABLE_CICD_DEPLOY=true
+#
+# Branches cibles (prévues) : main | master | develop
+# Push images + deploy VPS : main/master ou tags v*.*.* (pas PR, pas develop)
+#
+# VPS : ~/kobe-corporation/revolut-agent/
+#   - .env (manuel, depuis setup/.env.prod.example)
+#   - compose.prod.yaml (scp CI)
+# nginx API : agent-rev-api.kobecorporation.com → 127.0.0.1:4005
+# nginx Front : agent-rev-front.kobecorporation.com → 127.0.0.1:4004
+# =============================================================================
+
+name: CI/CD
+
+on:
+  workflow_dispatch:
+  # --- Activer le CI/CD automatique en décommentant : ---
+  # push:
+  #   branches:
+  #     - main
+  #     - master
+  #     - develop
+  #   tags:
+  #     - "v*.*.*"
+  # pull_request:
+  #   branches:
+  #     - main
+  #     - master
+  #     - develop
+
+concurrency:
+  group: cicd-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  JAVA_VERSION: "21"
+  IMAGE_API: revolut-agent-api
+  TRUFFLEHOG_VERSION: "3.95.3"
+  # MongoDB : image officielle (pas de build custom)
+  MONGO_IMAGE: mongo:7
+
+jobs:
+  tag:
+    name: Compute version tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.compute.outputs.version }}
+      docker_tag: ${{ steps.compute.outputs.docker_tag }}
+      short_sha: ${{ steps.compute.outputs.short_sha }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute version and docker tag
+        id: compute
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHORT_SHA="${GITHUB_SHA::7}"
+
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+          elif [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            VERSION="pr-${{ github.event.pull_request.number }}-${SHORT_SHA}"
+          else
+            BRANCH="${GITHUB_REF_NAME//\//-}"
+            VERSION="${BRANCH}-${SHORT_SHA}"
+          fi
+
+          DOCKER_TAG="$(echo "${VERSION}" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9._-' '-' | sed 's/^[.-]*//' | cut -c1-128)"
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "docker_tag=${DOCKER_TAG}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Version"
+            echo "- Version: \`${VERSION}\`"
+            echo "- Docker tag: \`${DOCKER_TAG}\`"
+            echo "- Short SHA: \`${SHORT_SHA}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  compile:
+    name: Compile Kotlin
+    runs-on: ubuntu-latest
+    needs: tag
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: gradle
+
+      - name: Compile
+        run: ./gradlew compileKotlin --no-daemon
+
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    needs: tag
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: gradle
+
+      - name: Run tests
+        run: ./gradlew test --no-daemon
+
+  secret-scan:
+    name: Secret scan (TruffleHog)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: TruffleHog (PR diff scan)
+        if: github.event_name == 'pull_request'
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.pull_request.base.sha }}
+          head: ${{ github.event.pull_request.head.sha }}
+          extra_args: --only-verified
+
+      - name: Install TruffleHog (push / tag / dispatch)
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ver="${TRUFFLEHOG_VERSION}"
+          asset="trufflehog_${ver}_linux_amd64.tar.gz"
+          url="https://github.com/trufflesecurity/trufflehog/releases/download/v${ver}/${asset}"
+          tmp="$(mktemp -d)"
+          curl -sSfL "$url" -o "${tmp}/${asset}"
+          tar -xzf "${tmp}/${asset}" -C "${tmp}"
+          sudo install -m 0755 "${tmp}/trufflehog" /usr/local/bin/trufflehog
+          rm -rf "${tmp}"
+          trufflehog --version
+
+      - name: TruffleHog (filesystem scan)
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          trufflehog filesystem . \
+            --only-verified \
+            --fail \
+            --no-update \
+            --exclude-paths=.github/trufflehog-exclude-paths.txt
+
+  build:
+    name: Build Spring Boot JAR
+    runs-on: ubuntu-latest
+    needs:
+      - tag
+      - compile
+      - unit-tests
+      - secret-scan
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: gradle
+
+      - name: bootJar
+        run: ./gradlew bootJar --no-daemon -x test
+
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-jar-${{ needs.tag.outputs.short_sha }}
+          path: build/libs/*.jar
+          retention-days: 7
+          if-no-files-found: error
+
+  docker-build:
+    name: Build, scan and SBOM Docker image (API)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: [tag, build]
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Pre-pull BuildKit image (retry)
+        shell: bash
+        run: |
+          set -euo pipefail
+          IMG=moby/buildkit:buildx-stable-1
+          for attempt in 1 2 3 4 5; do
+            echo "Tentative ${attempt}/5 : docker pull ${IMG}"
+            if docker pull "${IMG}"; then
+              echo "BuildKit image OK"
+              exit 0
+            fi
+            echo "registry-1.docker.io injoignable, attente $((attempt * 20))s…"
+            sleep $((attempt * 20))
+          done
+          echo "::error::Docker Hub inaccessible après 5 tentatives."
+          exit 1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+          driver-opts: image=moby/buildkit:buildx-stable-1
+
+      - name: Build API image (load locally)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: setup/Dockerfile
+          push: false
+          load: true
+          tags: |
+            ${{ env.IMAGE_API }}:${{ needs.tag.outputs.docker_tag }}
+            ${{ env.IMAGE_API }}:${{ needs.tag.outputs.short_sha }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      - name: Trivy scan API (report only)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE_API }}:${{ needs.tag.outputs.docker_tag }}
+          format: table
+          exit-code: "0"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+          vuln-type: os,library
+
+      - name: Trivy SARIF API
+        if: vars.ENABLE_CODE_SCANNING == 'true'
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE_API }}:${{ needs.tag.outputs.docker_tag }}
+          format: sarif
+          output: trivy-api.sarif
+          exit-code: "0"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+          vuln-type: os,library
+
+      - name: Upload Trivy SARIF (API)
+        if: vars.ENABLE_CODE_SCANNING == 'true'
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-api.sarif
+          category: trivy-api
+
+      - name: Generate SBOM API (Syft)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.IMAGE_API }}:${{ needs.tag.outputs.docker_tag }}
+          format: spdx-json
+          output-file: sbom-api.spdx.json
+          upload-artifact: false
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ needs.tag.outputs.short_sha }}
+          path: sbom-api.spdx.json
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Image build summary
+        shell: bash
+        run: |
+          {
+            echo "### Docker image (built locally)"
+            echo "- \`${{ env.IMAGE_API }}:${{ needs.tag.outputs.docker_tag }}\`"
+            echo "- \`${{ env.IMAGE_API }}:${{ needs.tag.outputs.short_sha }}\`"
+            echo "- MongoDB runtime: \`${{ env.MONGO_IMAGE }}\` (image officielle, pas de build)"
+            echo "- SBOM: artifact \`sbom-${{ needs.tag.outputs.short_sha }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  docker-push:
+    name: Push API image to Docker Hub and GHCR
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: [tag, docker-build]
+    # Gate : vars.ENABLE_CICD_DEPLOY + pas de PR + main/master/tag (ou dispatch)
+    if: |
+      vars.ENABLE_CICD_DEPLOY == 'true' &&
+      github.event_name != 'pull_request' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        startsWith(github.ref, 'refs/tags/') ||
+        github.ref == 'refs/heads/master' ||
+        github.ref == 'refs/heads/main'
+      )
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest_api: ${{ steps.push-api.outputs.digest }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Pre-pull BuildKit image (retry)
+        shell: bash
+        run: |
+          set -euo pipefail
+          IMG=moby/buildkit:buildx-stable-1
+          for attempt in 1 2 3 4 5; do
+            echo "Tentative ${attempt}/5 : docker pull ${IMG}"
+            if docker pull "${IMG}"; then
+              exit 0
+            fi
+            sleep $((attempt * 20))
+          done
+          exit 1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+          driver-opts: image=moby/buildkit:buildx-stable-1
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute API image tags
+        id: meta-api
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_API }}
+            ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_API }}
+          tags: |
+            type=raw,value=${{ needs.tag.outputs.docker_tag }}
+            type=raw,value=${{ needs.tag.outputs.short_sha }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
+
+      - name: Build and push API image
+        id: push-api
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: setup/Dockerfile
+          push: true
+          tags: ${{ steps.meta-api.outputs.tags }}
+          labels: ${{ steps.meta-api.outputs.labels }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+          provenance: true
+          sbom: true
+
+      - name: Push summary
+        shell: bash
+        run: |
+          {
+            echo "### Image pushed (API)"
+            echo "- Digest: \`${{ steps.push-api.outputs.digest }}\`"
+            echo "- Tags:"
+            while IFS= read -r tag; do
+              [ -n "${tag}" ] && echo "  - \`${tag}\`"
+            done <<< "${{ steps.meta-api.outputs.tags }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  docker-sign:
+    name: Sign API image with cosign (keyless OIDC)
+    runs-on: ubuntu-latest
+    needs: [tag, docker-push]
+    if: |
+      vars.ENABLE_CICD_DEPLOY == 'true' &&
+      github.event_name != 'pull_request' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        startsWith(github.ref, 'refs/tags/') ||
+        github.ref == 'refs/heads/master' ||
+        github.ref == 'refs/heads/main'
+      )
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign API image
+        env:
+          COSIGN_EXPERIMENTAL: "true"
+          IMAGE_REF: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_API }}@${{ needs.docker-push.outputs.digest_api }}
+        run: cosign sign --yes "${IMAGE_REF}"
+
+      - name: Sign summary
+        shell: bash
+        run: |
+          {
+            echo "### Cosign signature"
+            echo "- API: \`${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_API }}@${{ needs.docker-push.outputs.digest_api }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    name: Deploy to VPS (revolut-agent)
+    runs-on: ubuntu-latest
+    needs: [tag, docker-push, docker-sign]
+    if: |
+      vars.ENABLE_CICD_DEPLOY == 'true' &&
+      github.event_name != 'pull_request' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        startsWith(github.ref, 'refs/tags/') ||
+        github.ref == 'refs/heads/master' ||
+        github.ref == 'refs/heads/main'
+      )
+    environment:
+      name: production
+      url: https://agent-rev-api.kobecorporation.com
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        shell: bash
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USERNAME: ${{ secrets.VPS_USERNAME }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          missing=()
+          [ -z "${VPS_HOST}" ] && missing+=("VPS_HOST")
+          [ -z "${VPS_USERNAME}" ] && missing+=("VPS_USERNAME")
+          [ -z "${VPS_SSH_KEY}" ] && missing+=("VPS_SSH_KEY")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Secrets VPS manquants : ${missing[*]}"
+            exit 1
+          fi
+          echo "Secrets VPS présents"
+
+      - name: Copy compose.prod.yaml to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: setup/compose.prod.yaml
+          target: ${{ secrets.VPS_DEPLOY_DIR || '~/kobe-corporation/revolut-agent' }}/
+          strip_components: 1
+          overwrite: true
+
+      - name: Deploy via SSH (Mongo healthy → pull API → up)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: REVOLUT_AGENT_API_IMAGE,DOCKERHUB_USERNAME,DOCKERHUB_PASSWORD,DEPLOY_DIR
+          script_stop: true
+          command_timeout: 30m
+          script: |
+            set -eu
+
+            DEPLOY_DIR="${DEPLOY_DIR:-$HOME/kobe-corporation/revolut-agent}"
+            mkdir -p "$DEPLOY_DIR"
+            cd "$DEPLOY_DIR"
+
+            if [ ! -f "$DEPLOY_DIR/.env" ]; then
+              echo "Fichier $DEPLOY_DIR/.env absent."
+              echo "Copiez setup/.env.prod.example vers $DEPLOY_DIR/.env et renseignez les secrets."
+              exit 1
+            fi
+
+            if [ ! -f "$DEPLOY_DIR/compose.prod.yaml" ]; then
+              echo "compose.prod.yaml absent dans $DEPLOY_DIR"
+              exit 1
+            fi
+
+            if [ -n "${DOCKERHUB_USERNAME:-}" ] && [ -n "${DOCKERHUB_PASSWORD:-}" ]; then
+              echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+            fi
+
+            # Met à jour l'image API dans .env pour ce déploiement (sans écraser le reste)
+            if grep -q '^REVOLUT_AGENT_API_IMAGE=' .env; then
+              sed -i "s|^REVOLUT_AGENT_API_IMAGE=.*|REVOLUT_AGENT_API_IMAGE=${REVOLUT_AGENT_API_IMAGE}|" .env
+            else
+              echo "REVOLUT_AGENT_API_IMAGE=${REVOLUT_AGENT_API_IMAGE}" >> .env
+            fi
+
+            export REVOLUT_AGENT_API_IMAGE
+            echo "==> Pull MongoDB officiel (si besoin) + API : $REVOLUT_AGENT_API_IMAGE"
+            docker compose -f compose.prod.yaml pull
+
+            # Mongo démarre / reste healthy avant l'API (depends_on condition: service_healthy)
+            echo "==> Up (mongodb healthy → api)"
+            docker compose -f compose.prod.yaml up -d --remove-orphans --force-recreate
+            docker image prune -f
+            docker compose -f compose.prod.yaml ps
+
+            docker logout || true
+        env:
+          REVOLUT_AGENT_API_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_API }}:${{ needs.tag.outputs.docker_tag }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
+          DEPLOY_DIR: ${{ secrets.VPS_DEPLOY_DIR }}
+
+      - name: Deploy summary
+        shell: bash
+        run: |
+          {
+            echo "### Déploiement revolut-agent"
+            echo "- API: \`${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_API }}:${{ needs.tag.outputs.docker_tag }}\`"
+            echo "- Digest: \`${{ needs.docker-push.outputs.digest_api }}\`"
+            echo "- Répertoire VPS: \`${{ secrets.VPS_DEPLOY_DIR || '~/kobe-corporation/revolut-agent' }}\`"
+            echo "- API publique: https://agent-rev-api.kobecorporation.com"
+            echo "- Port local nginx: \`127.0.0.1:4005\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  smoke-test:
+    name: Smoke test post-deploy
+    runs-on: ubuntu-latest
+    needs: [deploy]
+    if: |
+      vars.ENABLE_CICD_DEPLOY == 'true' &&
+      github.event_name != 'pull_request' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        startsWith(github.ref, 'refs/tags/') ||
+        github.ref == 'refs/heads/master' ||
+        github.ref == 'refs/heads/main'
+      )
+    permissions:
+      contents: read
+    steps:
+      - name: Healthcheck SSH (mongodb + api)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: DEPLOY_DIR,API_PORT
+          script: |
+            set -eu
+            DEPLOY_DIR="${DEPLOY_DIR:-$HOME/kobe-corporation/revolut-agent}"
+            API_PORT="${API_PORT:-4005}"
+            cd "$DEPLOY_DIR"
+
+            for name in revolut-agent-mongodb revolut-agent-api; do
+              RUNNING="$(docker ps --filter "name=^${name}$" --format '{{.Names}}')"
+              if [ "$RUNNING" != "$name" ]; then
+                echo "Conteneur ${name} absent ou arrêté"
+                docker ps -a
+                exit 1
+              fi
+            done
+
+            DB_HEALTH="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' revolut-agent-mongodb 2>/dev/null || echo none)"
+            echo "mongodb health: $DB_HEALTH"
+            if [ "$DB_HEALTH" != "healthy" ] && [ "$DB_HEALTH" != "none" ]; then
+              echo "MongoDB pas healthy"
+              docker logs --tail 80 revolut-agent-mongodb || true
+              exit 1
+            fi
+
+            i=1
+            while [ "$i" -le 24 ]; do
+              HTTP_CODE="$(curl -s -o /tmp/agent-health.json -w '%{http_code}' --max-time 5 \
+                "http://127.0.0.1:${API_PORT}/actuator/health" || echo 000)"
+              if [ "$HTTP_CODE" = "200" ]; then
+                echo "API OK (/actuator/health HTTP $HTTP_CODE)"
+                cat /tmp/agent-health.json || true
+                break
+              fi
+              echo "API pas prête ($i/24) HTTP=$HTTP_CODE..."
+              i=$((i+1))
+              sleep 5
+            done
+
+            if [ "$i" -gt 24 ]; then
+              echo "API ne répond pas — logs :"
+              docker logs --tail 200 revolut-agent-api || true
+              exit 1
+            fi
+
+            echo "Smoke test OK"
+        env:
+          DEPLOY_DIR: ${{ secrets.VPS_DEPLOY_DIR }}
+          API_PORT: ${{ vars.API_PORT || '4005' }}
+
+      - name: Public HTTPS check (API)
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://agent-rev-api.kobecorporation.com/actuator/health"
+          for i in $(seq 1 6); do
+            HTTP_CODE="$(curl -fsS -o /dev/null -w '%{http_code}' --max-time 15 "$URL" || echo '000')"
+            echo "Tentative $i : HTTP $HTTP_CODE"
+            case "$HTTP_CODE" in
+              2*) echo "API publique OK"; exit 0 ;;
+            esac
+            sleep 10
+          done
+          echo "::warning::https://agent-rev-api.kobecorporation.com/actuator/health non joignable depuis le runner (DNS / Cloudflare / nginx)."
+
+      - name: Smoke test summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### Smoke test revolut-agent"
+            echo "- Conteneurs \`revolut-agent-mongodb\`, \`revolut-agent-api\`"
+            echo "- Local: http://127.0.0.1:${{ vars.API_PORT || '4005' }}/actuator/health"
+            echo "- Public: https://agent-rev-api.kobecorporation.com/actuator/health"
+          } >> "$GITHUB_STEP_SUMMARY"

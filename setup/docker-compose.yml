@@ -1,3 +1,4 @@
+# Local MongoDB only — ne pas utiliser en prod (voir compose.prod.yaml)
 services:
   mongodb:
     image: mongo:7

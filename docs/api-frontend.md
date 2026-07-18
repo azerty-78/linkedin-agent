@@ -244,6 +244,9 @@ Révoque la session courante (le JWT ne fonctionne plus). Appeler avant de suppr
 | Champ | Type | Notes |
 |-------|------|--------|
 | `companyName` | `string` | |
+| `companyTagline` | `string \| null` | Slogan (max 120) |
+| `industry` | `string \| null` | Secteur (max 120) |
+| `websiteUrl` | `string \| null` | Site `http(s)` (max 500) |
 | `contentTopic` | `string` | Sujet des tips LinkedIn |
 | `publishHourUtc` | `number` | `0`–`23` |
 | `timezone` | `string` | ex. `Africa/Douala` |
@@ -266,6 +269,9 @@ Révoque la session courante (le JWT ne fonctionne plus). Appeler avant de suppr
 ```json
 {
   "companyName": "KOBE Corporation",
+  "companyTagline": "Publish smarter",
+  "industry": "SaaS",
+  "websiteUrl": "https://example.com",
   "contentTopic": "fintech tips",
   "publishHourUtc": 9,
   "timezone": "Africa/Douala",
@@ -368,7 +374,10 @@ Les anciens modèles `gemini-2.x` indisponibles sont remappés automatiquement.
 
 | Champ | Type | Requis | Notes |
 |-------|------|--------|--------|
-| `companyName` | `string` | Oui | Non vide |
+| `companyName` | `string` | Oui | Non vide (max 200) |
+| `companyTagline` | `string \| null` | Non | Max 120 ; `null` / `""` = **vider** |
+| `industry` | `string \| null` | Non | Max 120 ; `null` / `""` = **vider** |
+| `websiteUrl` | `string \| null` | Non | Max 500 ; si non vide → URL `http(s)` absolue ; `null` / `""` = **vider** |
 | `contentTopic` | `string` | Oui | Non vide |
 | `publishHourUtc` | `number` | Oui | `0`–`23` |
 | `timezone` | `string` | Oui | Non vide |
@@ -391,6 +400,9 @@ Les anciens modèles `gemini-2.x` indisponibles sont remappés automatiquement.
 ```json
 {
   "companyName": "KOBE Corporation",
+  "companyTagline": "Publish smarter",
+  "industry": "SaaS",
+  "websiteUrl": "https://example.com",
   "contentTopic": "fintech tips",
   "publishHourUtc": 9,
   "timezone": "Africa/Douala",

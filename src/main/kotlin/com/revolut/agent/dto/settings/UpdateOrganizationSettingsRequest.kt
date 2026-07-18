@@ -4,10 +4,25 @@ import com.revolut.agent.model.settings.LlmProvider
 import jakarta.validation.constraints.Max
 import jakarta.validation.constraints.Min
 import jakarta.validation.constraints.NotBlank
+import jakarta.validation.constraints.Size
 
 data class UpdateOrganizationSettingsRequest(
 	@field:NotBlank
+	@field:Size(max = 200)
 	val companyName: String,
+
+	/**
+	 * Slogan. `null` / `""` = vider ; valeur = remplacer.
+	 */
+	@field:Size(max = 120)
+	val companyTagline: String? = null,
+
+	@field:Size(max = 120)
+	val industry: String? = null,
+
+	/** Si non vide → URL absolue http/https (validée côté service). */
+	@field:Size(max = 500)
+	val websiteUrl: String? = null,
 
 	@field:NotBlank
 	val contentTopic: String,

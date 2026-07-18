@@ -5,6 +5,9 @@ import java.time.Instant
 
 data class OrganizationSettingsResponse(
 	val companyName: String,
+	val companyTagline: String?,
+	val industry: String?,
+	val websiteUrl: String?,
 	val contentTopic: String,
 	val publishHourUtc: Int,
 	val timezone: String,

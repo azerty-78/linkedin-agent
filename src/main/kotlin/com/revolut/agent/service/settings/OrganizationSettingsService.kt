@@ -79,36 +79,43 @@ class OrganizationSettingsService(
 				}
 				validateActiveLinkedInAccountId(nextActiveAccountId)
 					.then(
-						organizationSettingsRepository.save(
-							base.copy(
-								companyName = request.companyName.trim(),
-								contentTopic = request.contentTopic.trim(),
-								publishHourUtc = request.publishHourUtc,
-								timezone = request.timezone.trim(),
-								activeLlmProvider = request.activeLlmProvider,
-								openAiModel = resolveModel(base.openAiModel, request.openAiModel, LlmProvider.OPENAI),
-								anthropicModel = resolveModel(base.anthropicModel, request.anthropicModel, LlmProvider.ANTHROPIC),
-								geminiModel = resolveModel(base.geminiModel, request.geminiModel, LlmProvider.GEMINI),
-								encryptedOpenAiKey = resolveEncryptedKey(base.encryptedOpenAiKey, request.openAiApiKey),
-								encryptedAnthropicKey = resolveEncryptedKey(base.encryptedAnthropicKey, request.anthropicApiKey),
-								encryptedGeminiKey = resolveEncryptedKey(base.encryptedGeminiKey, request.geminiApiKey),
-								linkedInOrganizationId = request.linkedInOrganizationId?.trim()?.takeIf { it.isNotEmpty() }
-									?: base.linkedInOrganizationId,
-								linkedInClientId = resolveOptionalClearable(base.linkedInClientId, request.linkedInClientId),
-								encryptedLinkedInClientSecret = resolveLinkedInClientSecret(
-									base.encryptedLinkedInClientSecret,
-									request.linkedInClientSecret,
-									request.clearLinkedInClientSecret == true,
+						Mono.defer {
+							val websiteUrl = normalizeOptionalText(request.websiteUrl, maxLen = 500)
+							validateWebsiteUrl(websiteUrl)
+							organizationSettingsRepository.save(
+								base.copy(
+									companyName = request.companyName.trim(),
+									companyTagline = normalizeOptionalText(request.companyTagline, maxLen = 120),
+									industry = normalizeOptionalText(request.industry, maxLen = 120),
+									websiteUrl = websiteUrl,
+									contentTopic = request.contentTopic.trim(),
+									publishHourUtc = request.publishHourUtc,
+									timezone = request.timezone.trim(),
+									activeLlmProvider = request.activeLlmProvider,
+									openAiModel = resolveModel(base.openAiModel, request.openAiModel, LlmProvider.OPENAI),
+									anthropicModel = resolveModel(base.anthropicModel, request.anthropicModel, LlmProvider.ANTHROPIC),
+									geminiModel = resolveModel(base.geminiModel, request.geminiModel, LlmProvider.GEMINI),
+									encryptedOpenAiKey = resolveEncryptedKey(base.encryptedOpenAiKey, request.openAiApiKey),
+									encryptedAnthropicKey = resolveEncryptedKey(base.encryptedAnthropicKey, request.anthropicApiKey),
+									encryptedGeminiKey = resolveEncryptedKey(base.encryptedGeminiKey, request.geminiApiKey),
+									linkedInOrganizationId = request.linkedInOrganizationId?.trim()?.takeIf { it.isNotEmpty() }
+										?: base.linkedInOrganizationId,
+									linkedInClientId = resolveOptionalClearable(base.linkedInClientId, request.linkedInClientId),
+									encryptedLinkedInClientSecret = resolveLinkedInClientSecret(
+										base.encryptedLinkedInClientSecret,
+										request.linkedInClientSecret,
+										request.clearLinkedInClientSecret == true,
+									),
+									// redirect / scopes : 100 % serveur (linkedin.redirect-uri / oauth-scopes) — ignore PUT
+									linkedInRedirectUri = base.linkedInRedirectUri,
+									linkedInOauthScopes = base.linkedInOauthScopes,
+									activeLinkedInAccountId = nextActiveAccountId,
+									schedulerEnabled = request.schedulerEnabled ?: base.schedulerEnabled,
+									updatedAt = Instant.now(),
+									updatedBy = updatedByEmail,
 								),
-								// redirect / scopes : 100 % serveur (linkedin.redirect-uri / oauth-scopes) — ignore PUT
-								linkedInRedirectUri = base.linkedInRedirectUri,
-								linkedInOauthScopes = base.linkedInOauthScopes,
-								activeLinkedInAccountId = nextActiveAccountId,
-								schedulerEnabled = request.schedulerEnabled ?: base.schedulerEnabled,
-								updatedAt = Instant.now(),
-								updatedBy = updatedByEmail,
-							),
-						),
+							)
+						},
 					)
 			}
 			.map(::toResponse)
@@ -305,6 +312,9 @@ class OrganizationSettingsService(
 	private fun toResponse(settings: OrganizationSettings): OrganizationSettingsResponse =
 		OrganizationSettingsResponse(
 			companyName = settings.companyName,
+			companyTagline = settings.companyTagline,
+			industry = settings.industry,
+			websiteUrl = settings.websiteUrl,
 			contentTopic = settings.contentTopic,
 			publishHourUtc = settings.publishHourUtc,
 			timezone = settings.timezone,
@@ -324,6 +334,33 @@ class OrganizationSettingsService(
 			schedulerEnabled = settings.schedulerEnabled,
 			updatedAt = settings.updatedAt,
 		)
+
+	/** `null` / blank → null (vider) ; sinon trim + max length. */
+	private fun normalizeOptionalText(value: String?, maxLen: Int): String? {
+		val trimmed = value?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+		if (trimmed.length > maxLen) {
+			throw IllegalArgumentException("Value must be at most $maxLen characters")
+		}
+		return trimmed
+	}
+
+	private fun validateWebsiteUrl(url: String?) {
+		if (url.isNullOrBlank()) {
+			return
+		}
+		val uri = try {
+			java.net.URI(url)
+		} catch (_: Exception) {
+			throw IllegalArgumentException("websiteUrl must be a valid absolute http(s) URL")
+		}
+		val scheme = uri.scheme?.lowercase()
+		if (scheme != "http" && scheme != "https") {
+			throw IllegalArgumentException("websiteUrl must start with http:// or https://")
+		}
+		if (uri.host.isNullOrBlank()) {
+			throw IllegalArgumentException("websiteUrl must include a host")
+		}
+	}
 
 	private fun maskEncrypted(encrypted: String?): String {
 		if (encrypted.isNullOrBlank()) {

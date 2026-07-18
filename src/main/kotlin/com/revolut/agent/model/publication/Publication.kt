@@ -1,5 +1,6 @@
 package com.revolut.agent.model.publication
 
+import com.revolut.agent.model.settings.LlmProvider
 import org.springframework.data.annotation.Id
 import org.springframework.data.mongodb.core.mapping.Document
 import java.time.Instant
@@ -20,4 +21,6 @@ data class Publication(
 	val completedAt: Instant? = null,
 	val steps: List<PublicationStepResult> = emptyList(),
 	val triggeredBy: String? = null,
+	/** Provider utilisé pour la génération (utile au confirm). */
+	val llmProvider: LlmProvider? = null,
 )

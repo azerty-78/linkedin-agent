@@ -151,7 +151,7 @@ Comportement :
 
 1. Lit les settings (provider actif + modèle choisi + topic)
 2. Déchiffre la clé du provider
-3. Construit le prompt (`PromptBuilderService`)
+3. Construit le prompt (`PromptContextBuilder` — identité + brief éditorial)
 4. Délègue au générateur Strategy avec le modèle sélectionné
 5. Retourne contenu + provider + `model` + `generatedAt` + prompt utilisé
 

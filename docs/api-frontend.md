@@ -7,7 +7,7 @@ Documentation destinée au frontend pour brancher / mettre à jour les appels HT
 **Auth** : JWT Bearer sur toutes les routes sauf celles marquées **Public**
 
 > Dernière synchro : alignée sur les controllers fonctionnels (`auth`, `settings`, `ai`, `linkedin`, `publications`, `actuator/health`).  
-> **Changelog** : feature subscribers / newsletter **supprimée** ; users/profil en DB (`GET/PUT /api/auth/me`, `POST /api/auth/change-password`) — seed ADMIN create-if-missing only.
+> **Changelog** : subscribers retirés ; users/profil en DB ; identité org + **brief éditorial** + `PromptContextBuilder` unique sur tous les flux de génération.
 
 ---
 
@@ -248,6 +248,20 @@ Révoque la session courante (le JWT ne fonctionne plus). Appeler avant de suppr
 | `industry` | `string \| null` | Secteur (max 120) |
 | `websiteUrl` | `string \| null` | Site `http(s)` (max 500) |
 | `contentTopic` | `string` | Sujet des tips LinkedIn |
+| `contentLanguage` | `fr` \| `en` \| `auto` | Défaut `auto` |
+| `brandTone` | enum | Défaut `PROFESSIONAL` |
+| `targetAudience` | `string \| null` | Public (max 2000) |
+| `brandGuidelines` | `string \| null` | Consignes prioritaires (max 4000) |
+| `defaultHashtags` | `string \| null` | Append si absents du post |
+| `contentPillars` | `string \| null` | Thèmes récurrents |
+| `topicsToAvoid` | `string \| null` | Interdits |
+| `contentGoals` | `string \| null` | Objectifs |
+| `preferredFormats` | `ContentFormat[]` | Max 6 ; rotation déterministe |
+| `callToActionPreference` | `string \| null` | Style de CTA |
+| `emojiPolicy` | `NONE` \| `SPARSE` \| `ALLOWED` | Défaut `SPARSE` |
+| `postLengthPreference` | `SHORT` \| `MEDIUM` \| `LONG` | Défaut `MEDIUM` |
+| `mustIncludeKeywords` | `string \| null` | Mots-clés |
+| `examplePostStyle` | `string \| null` | Exemple de style |
 | `publishHourUtc` | `number` | `0`–`23` |
 | `timezone` | `string` | ex. `Africa/Douala` |
 | `activeLlmProvider` | `LlmProvider` | Provider utilisé pour générer |
@@ -273,6 +287,20 @@ Révoque la session courante (le JWT ne fonctionne plus). Appeler avant de suppr
   "industry": "SaaS",
   "websiteUrl": "https://example.com",
   "contentTopic": "fintech tips",
+  "contentLanguage": "fr",
+  "brandTone": "PROFESSIONAL",
+  "targetAudience": "CMOs PME",
+  "brandGuidelines": "Tutoiement. CTA clair.",
+  "defaultHashtags": "#linkedin #growth",
+  "contentPillars": "PLG, culture",
+  "topicsToAvoid": "politique",
+  "contentGoals": "notoriété",
+  "preferredFormats": ["TIP", "STORY"],
+  "callToActionPreference": "finir par une question",
+  "emojiPolicy": "SPARSE",
+  "postLengthPreference": "MEDIUM",
+  "mustIncludeKeywords": "automation",
+  "examplePostStyle": null,
   "publishHourUtc": 9,
   "timezone": "Africa/Douala",
   "activeLlmProvider": "GEMINI",
@@ -379,6 +407,20 @@ Les anciens modèles `gemini-2.x` indisponibles sont remappés automatiquement.
 | `industry` | `string \| null` | Non | Max 120 ; `null` / `""` = **vider** |
 | `websiteUrl` | `string \| null` | Non | Max 500 ; si non vide → URL `http(s)` absolue ; `null` / `""` = **vider** |
 | `contentTopic` | `string` | Oui | Non vide |
+| `contentLanguage` | enum | Non | `null` = conserver ; défaut lecture `auto` |
+| `brandTone` | enum | Non | `null` = conserver ; défaut `PROFESSIONAL` |
+| `targetAudience` | `string \| null` | Non | Max 2000 ; `null`/`""` = vider |
+| `brandGuidelines` | `string \| null` | Non | Max 4000 ; priorité haute dans le prompt |
+| `defaultHashtags` | `string \| null` | Non | Max 300 |
+| `contentPillars` | `string \| null` | Non | Max 2000 |
+| `topicsToAvoid` | `string \| null` | Non | Max 2000 |
+| `contentGoals` | `string \| null` | Non | Max 2000 |
+| `preferredFormats` | `ContentFormat[]` | Non | `null` = conserver ; `[]` = vider ; max 6 uniques |
+| `callToActionPreference` | `string \| null` | Non | Max 500 |
+| `emojiPolicy` | enum | Non | `null` = conserver |
+| `postLengthPreference` | enum | Non | `null` = conserver |
+| `mustIncludeKeywords` | `string \| null` | Non | Max 500 |
+| `examplePostStyle` | `string \| null` | Non | Max 4000 |
 | `publishHourUtc` | `number` | Oui | `0`–`23` |
 | `timezone` | `string` | Oui | Non vide |
 | `activeLlmProvider` | `LlmProvider` | Oui | |
@@ -397,6 +439,10 @@ Les anciens modèles `gemini-2.x` indisponibles sont remappés automatiquement.
 | `activeLinkedInAccountId` | `string \| null` | Non | `null` = conserver ; `""` = aucun ; id = compte actif (**400** si inconnu) |
 | `schedulerEnabled` | `boolean \| null` | Non | `null` = conserver |
 
+> **Brief IA** : les champs ton / emojis / formats / etc. sont persistés via `PUT /api/settings` et consommés par un **`PromptContextBuilder` unique** (generate-test, publish-test, trigger, scheduler). Changer les consignes puis re-trigger = prompt à jour (settings relus à chaque run).
+
+**Enums brief** : `BrandTone` (`PROFESSIONAL|CASUAL|EXPERT|INSPIRATIONAL|EDUCATIONAL`), `EmojiPolicy` (`NONE|SPARSE|ALLOWED`), `PostLengthPreference` (`SHORT|MEDIUM|LONG`), `ContentFormat` (`TIP|STORY|QUESTION|LIST|OPINION|CASE_STUDY`), `ContentLanguage` (`fr|en|auto`).
+
 ```json
 {
   "companyName": "KOBE Corporation",
@@ -404,6 +450,13 @@ Les anciens modèles `gemini-2.x` indisponibles sont remappés automatiquement.
   "industry": "SaaS",
   "websiteUrl": "https://example.com",
   "contentTopic": "fintech tips",
+  "contentLanguage": "fr",
+  "brandTone": "CASUAL",
+  "emojiPolicy": "NONE",
+  "postLengthPreference": "SHORT",
+  "preferredFormats": ["TIP", "QUESTION"],
+  "topicsToAvoid": "politique",
+  "defaultHashtags": "#fintech",
   "publishHourUtc": 9,
   "timezone": "Africa/Douala",
   "activeLlmProvider": "GEMINI",

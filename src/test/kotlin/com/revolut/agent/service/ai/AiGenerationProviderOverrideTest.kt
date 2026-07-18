@@ -99,6 +99,23 @@ class AiGenerationProviderOverrideTest {
 			.verify()
 	}
 
+	@Test
+	fun `generateDailyTipForTest rejects requested provider without key`() {
+		`when`(settingsService.getSettings()).thenReturn(
+			Mono.just(settingsWithKeys(geminiMasked = "", openAiMasked = "****x", active = LlmProvider.OPENAI)),
+		)
+
+		StepVerifier.create(
+			service.generateDailyTipForTest(
+				com.revolut.agent.dto.ai.GenerateTestRequest(llmProvider = LlmProvider.GEMINI),
+			),
+		)
+			.expectErrorMatches { ex ->
+				ex is AiGenerationException && ex.message!!.contains("Clé API GEMINI manquante")
+			}
+			.verify()
+	}
+
 	private fun settingsWithKeys(
 		openAiMasked: String = "",
 		anthropicMasked: String = "",

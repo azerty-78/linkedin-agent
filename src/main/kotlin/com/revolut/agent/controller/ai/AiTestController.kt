@@ -1,8 +1,10 @@
 package com.revolut.agent.controller.ai
 
+import com.revolut.agent.dto.ai.GenerateTestRequest
 import com.revolut.agent.dto.ai.GeneratedContentResponse
 import com.revolut.agent.service.ai.AiGenerationService
 import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 import reactor.core.publisher.Mono
@@ -18,6 +20,8 @@ class AiTestController(
 ) {
 
 	@PostMapping("/generate-test")
-	fun generateTest(): Mono<GeneratedContentResponse> =
-		aiGenerationService.generateDailyTipForTest()
+	fun generateTest(
+		@RequestBody(required = false) request: GenerateTestRequest?,
+	): Mono<GeneratedContentResponse> =
+		aiGenerationService.generateDailyTipForTest(request)
 }

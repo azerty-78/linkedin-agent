@@ -506,19 +506,38 @@ Les anciens modèles `gemini-2.x` indisponibles sont remappés automatiquement.
 | **URL** | `/api/ai/generate-test` |
 | **Auth** | Bearer |
 | **Succès** | `200` |
-| **Body** | aucun |
+| **Body** | optionnel (rétrocompat si absent / `{}`) |
 
 Le backend **n’utilise pas** les modèles premium choisis dans les settings pour cet endpoint.
 
 | Contexte | Modèles | Tokens |
 |----------|---------|--------|
 | `POST /api/ai/generate-test` | Forcés faibles (`ai.test.*`) | ~80 max |
-| Génération réelle (scheduler / futur) | Modèles choisis dans `/api/settings` | ~1024 |
+| Génération réelle (scheduler / publications) | Modèles choisis dans `/api/settings` | ~1024 |
+
+**Body optionnel**
+
+| Champ | Type | Défaut | Notes |
+|-------|------|--------|--------|
+| `llmProvider` | `GEMINI` \| `OPENAI` \| `ANTHROPIC` | prefer Gemini / actif | Si clé absente → **422** message FR |
+| `topic` | `string` | `settings.contentTopic` | Override ponctuel |
+| `brandTone` | `BrandTone` | settings | Override ton |
+| `contentLanguage` | `fr` \| `en` \| `auto` | settings | Override langue |
+| `useOrgBrief` | `boolean` | `true` | `false` = tip minimal (topic + règles), sans brief org |
+
+```json
+{
+  "llmProvider": "GEMINI",
+  "topic": "Onboarding client",
+  "brandTone": "PROFESSIONAL",
+  "contentLanguage": "fr",
+  "useOrgBrief": true
+}
+```
 
 Comportement test :
-- Prompt ultra-court
-- Si une clé Gemini existe → priorité à `gemini-3.1-flash-lite` (free, léger)
-- Sinon provider actif + modèle de test (ex. `gpt-4.1-nano`)
+- Prompt via `PromptContextBuilder` (compact) ; modèles `ai.test.*` uniquement
+- Si une clé Gemini existe et pas d’override → priorité Gemini lite
 - gpt-4o / sonnet / etc. configurés en UI ne sont **pas** appelés ici
 
 **Réponse `200`**
@@ -932,7 +951,7 @@ CSV : `id,triggeredAt,completedAt,triggerType,status,triggeredBy,contentExcerpt,
 | `GET` | `/api/settings` | Oui | — | `200` |
 | `GET` | `/api/settings/llm-models` | Oui | — | `200` |
 | `PUT` | `/api/settings` | Oui | settings (§3.3) | `200` |
-| `POST` | `/api/ai/generate-test` | Oui | — | `200` |
+| `POST` | `/api/ai/generate-test` | Oui | `{ llmProvider?, topic?, brandTone?, contentLanguage?, useOrgBrief? }` | `200` |
 | `GET` | `/api/linkedin/summary` | Oui | — | `200` |
 | `GET` | `/api/linkedin/accounts` | Oui | — | `200` |
 | `GET` | `/api/linkedin/accounts/active` | Oui | — | `200` / `404` |

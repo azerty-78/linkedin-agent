@@ -1,6 +1,7 @@
 package com.revolut.agent.service.ai
 
 import com.revolut.agent.config.AiModelProperties
+import com.revolut.agent.dto.ai.GenerateTestRequest
 import com.revolut.agent.dto.ai.GeneratedContentResponse
 import com.revolut.agent.dto.settings.OrganizationSettingsResponse
 import com.revolut.agent.exception.ai.AiGenerationException
@@ -73,58 +74,104 @@ class AiGenerationService(
 
 	/**
 	 * Endpoint de test uniquement : modèles faibles / free, peu de tokens.
-	 * Même PromptContextBuilder (brief settings), mode compact.
+	 * Même PromptContextBuilder ; overrides ponctuels via [request] (rétrocompat si null).
 	 */
-	fun generateDailyTipForTest(): Mono<GeneratedContentResponse> =
+	fun generateDailyTipForTest(request: GenerateTestRequest? = null): Mono<GeneratedContentResponse> =
 		organizationSettingsService.getSettings()
 			.flatMap { settings ->
-				val provider = resolveTestProvider(settings)
-				if (!hasConfiguredKey(settings, provider)) {
-					return@flatMap Mono.error(
-						AiGenerationException(
-							"No API key configured for test provider $provider. " +
-								"For free tests, set geminiApiKey + activeLlmProvider=GEMINI in /api/settings.",
-						),
-					)
-				}
+				val effectiveSettings = applyTestOverrides(settings, request)
+				val useOrgBrief = request?.useOrgBrief != false
 
-				val model = resolveTestModel(provider)
-				val brief = promptContextBuilder.build(
-					settings = settings,
-					provider = provider,
-					model = model,
-					compact = true,
-				)
-				generateWithBrief(settings, brief, aiModelProperties.test.maxOutputTokens, mode = "test")
-					.onErrorResume { error ->
-						if (!isQuotaOrRateLimit(error) || provider == LlmProvider.GEMINI) {
-							return@onErrorResume Mono.error(error)
-						}
-						if (!hasConfiguredKey(settings, LlmProvider.GEMINI)) {
-							return@onErrorResume Mono.error(
-								AiGenerationException(
-									"Paid provider quota exceeded during test. " +
-										"Add a Gemini API key for free-tier tests (model ${aiModelProperties.test.geminiModel}).",
-									error,
-								),
-							)
-						}
-						log.warn("Test generation quota on {} — falling back to weak Gemini model", provider)
-						val fallbackModel = resolveTestModel(LlmProvider.GEMINI)
-						val fallbackBrief = promptContextBuilder.build(
-							settings = settings,
-							provider = LlmProvider.GEMINI,
-							model = fallbackModel,
+				resolveTestProviderForRequest(settings, request?.llmProvider)
+					.flatMap { provider ->
+						val model = resolveTestModel(provider)
+						val brief = promptContextBuilder.build(
+							settings = effectiveSettings,
+							provider = provider,
+							model = model,
 							compact = true,
+							useOrgBrief = useOrgBrief,
 						)
 						generateWithBrief(
-							settings,
-							fallbackBrief,
+							effectiveSettings,
+							brief,
 							aiModelProperties.test.maxOutputTokens,
-							mode = "test-fallback",
+							mode = "test",
 						)
+							.onErrorResume { error ->
+								if (!isQuotaOrRateLimit(error) || provider == LlmProvider.GEMINI) {
+									return@onErrorResume Mono.error(error)
+								}
+								if (!hasConfiguredKey(settings, LlmProvider.GEMINI)) {
+									return@onErrorResume Mono.error(
+										AiGenerationException(
+											"Paid provider quota exceeded during test. " +
+												"Add a Gemini API key for free-tier tests (model ${aiModelProperties.test.geminiModel}).",
+											error,
+										),
+									)
+								}
+								log.warn("Test generation quota on {} — falling back to weak Gemini model", provider)
+								val fallbackModel = resolveTestModel(LlmProvider.GEMINI)
+								val fallbackBrief = promptContextBuilder.build(
+									settings = effectiveSettings,
+									provider = LlmProvider.GEMINI,
+									model = fallbackModel,
+									compact = true,
+									useOrgBrief = useOrgBrief,
+								)
+								generateWithBrief(
+									effectiveSettings,
+									fallbackBrief,
+									aiModelProperties.test.maxOutputTokens,
+									mode = "test-fallback",
+								)
+							}
 					}
 			}
+
+	private fun applyTestOverrides(
+		settings: OrganizationSettingsResponse,
+		request: GenerateTestRequest?,
+	): OrganizationSettingsResponse {
+		if (request == null) return settings
+		return settings.copy(
+			contentTopic = request.topic?.trim()?.takeIf { it.isNotEmpty() } ?: settings.contentTopic,
+			brandTone = request.brandTone ?: settings.brandTone,
+			contentLanguage = request.contentLanguage ?: settings.contentLanguage,
+		)
+	}
+
+	/**
+	 * Provider demandé explicitement → 400 si clé absente.
+	 * Sinon logique historique (prefer Gemini si clé, sinon active).
+	 */
+	private fun resolveTestProviderForRequest(
+		settings: OrganizationSettingsResponse,
+		requested: LlmProvider?,
+	): Mono<LlmProvider> {
+		if (requested != null) {
+			return if (!hasConfiguredKey(settings, requested)) {
+				Mono.error(
+					AiGenerationException(
+						"Clé API $requested manquante. Configurez-la dans Paramètres.",
+					),
+				)
+			} else {
+				Mono.just(requested)
+			}
+		}
+		val provider = resolveTestProvider(settings)
+		if (!hasConfiguredKey(settings, provider)) {
+			return Mono.error(
+				AiGenerationException(
+					"No API key configured for test provider $provider. " +
+						"For free tests, set geminiApiKey + activeLlmProvider=GEMINI in /api/settings.",
+				),
+			)
+		}
+		return Mono.just(provider)
+	}
 
 	private fun generateWithBrief(
 		settings: OrganizationSettingsResponse,

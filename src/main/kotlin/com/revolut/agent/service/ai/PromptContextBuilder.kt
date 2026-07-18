@@ -24,17 +24,26 @@ class PromptContextBuilder {
 		provider: LlmProvider,
 		model: String,
 		compact: Boolean = false,
+		useOrgBrief: Boolean = true,
 	): ContentBrief {
 		val language = resolveLanguage(settings)
-		val formatChosen = chooseFormat(settings)
+		val formatChosen = if (useOrgBrief) chooseFormat(settings) else ContentFormat.TIP
 		val targetLength = if (compact) {
 			TargetLength(min = 80, max = 250)
 		} else {
 			lengthFor(settings.postLengthPreference)
 		}
-		val hashtags = parseHashtags(settings.defaultHashtags)
-		val systemPrompt = buildSystemPrompt(settings, language, formatChosen, targetLength, compact)
-		val userPrompt = buildUserPrompt(settings, language, formatChosen, compact)
+		val hashtags = if (useOrgBrief) parseHashtags(settings.defaultHashtags) else emptyList()
+		val systemPrompt = if (useOrgBrief) {
+			buildSystemPrompt(settings, language, formatChosen, targetLength, compact)
+		} else {
+			buildMinimalSystemPrompt(language, targetLength)
+		}
+		val userPrompt = if (useOrgBrief) {
+			buildUserPrompt(settings, language, formatChosen, compact)
+		} else {
+			buildMinimalUserPrompt(settings, language)
+		}
 
 		return ContentBrief(
 			systemPrompt = systemPrompt,
@@ -45,8 +54,28 @@ class PromptContextBuilder {
 			hashtags = hashtags,
 			provider = provider,
 			model = model,
-			emojiPolicyName = settings.emojiPolicy.name,
+			emojiPolicyName = if (useOrgBrief) settings.emojiPolicy.name else EmojiPolicy.SPARSE.name,
 		)
+	}
+
+	private fun buildMinimalSystemPrompt(language: String, targetLength: TargetLength): String =
+		"""
+			Tu rédiges un post LinkedIn court, prêt à publier.
+
+			RÈGLES
+			- Un seul post LinkedIn, sans markdown de titre
+			- Pas de meta-commentaire — uniquement le texte du post
+			- Langue: $language
+			- Longueur: ${targetLength.min}-${targetLength.max} caractères
+			- Mode test minimal: pas de brief entreprise, seulement le sujet demandé
+		""".trimIndent()
+
+	private fun buildMinimalUserPrompt(
+		settings: OrganizationSettingsResponse,
+		language: String,
+	): String {
+		val topic = settings.contentTopic.trim().ifBlank { "astuces professionnelles" }
+		return "Rédige maintenant un tip LinkedIn ultra-court sur: \"$topic\" (langue: $language)."
 	}
 
 	private fun buildSystemPrompt(

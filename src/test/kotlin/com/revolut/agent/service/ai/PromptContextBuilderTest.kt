@@ -69,6 +69,34 @@ class PromptContextBuilderTest {
 		assertTrue(processed.contains("#linkedin"))
 	}
 
+	@Test
+	fun `useOrgBrief false omits identity and full brief`() {
+		val brief = builder.build(
+			settings = sampleSettings(),
+			provider = LlmProvider.GEMINI,
+			model = "gemini-3.1-flash-lite",
+			compact = true,
+			useOrgBrief = false,
+		)
+		assertFalse(brief.systemPrompt.contains("IDENTITÉ"))
+		assertFalse(brief.systemPrompt.contains("BRIEF"))
+		assertTrue(brief.systemPrompt.contains("Mode test minimal"))
+		assertTrue(brief.userPrompt.contains("fintech"))
+		assertEquals(ContentFormat.TIP, brief.formatChosen)
+	}
+
+	@Test
+	fun `topic override via settings copy appears in user prompt`() {
+		val overridden = sampleSettings().copy(contentTopic = "Onboarding client")
+		val brief = builder.build(
+			settings = overridden,
+			provider = LlmProvider.GEMINI,
+			model = "gemini-3.1-flash-lite",
+			compact = true,
+		)
+		assertTrue(brief.userPrompt.contains("Onboarding client"))
+	}
+
 	private fun sampleSettings(
 		topicsToAvoid: String? = null,
 		brandTone: BrandTone = BrandTone.PROFESSIONAL,

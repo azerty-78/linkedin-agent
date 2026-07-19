@@ -5,14 +5,19 @@ import com.revolut.agent.dto.settings.LlmModelOptionResponse
 import com.revolut.agent.dto.settings.LlmModelsCatalogResponse
 import com.revolut.agent.dto.settings.OrganizationSettingsResponse
 import com.revolut.agent.dto.settings.UpdateOrganizationSettingsRequest
+import com.revolut.agent.model.settings.BrandTone
 import com.revolut.agent.model.settings.ContentFormat
+import com.revolut.agent.model.settings.ContentLanguage
+import com.revolut.agent.model.settings.EmojiPolicy
 import com.revolut.agent.model.settings.LlmModelCatalog
 import com.revolut.agent.model.settings.LlmProvider
 import com.revolut.agent.model.settings.OrganizationSettings
+import com.revolut.agent.model.settings.PostLengthPreference
 import com.revolut.agent.model.settings.SchedulerFrequency
 import com.revolut.agent.repository.linkedin.LinkedInConnectionRepository
 import com.revolut.agent.repository.settings.OrganizationSettingsRepository
 import com.revolut.agent.service.linkedin.LinkedInAppService
+import com.fasterxml.jackson.databind.JsonNode
 import org.slf4j.LoggerFactory
 import org.springframework.context.annotation.Lazy
 import org.springframework.stereotype.Service
@@ -151,6 +156,261 @@ class OrganizationSettingsService(
 			}
 			.map(::toResponse)
 			.flatMap(::overlayActiveLinkedInApp)
+
+	/**
+	 * Mise à jour partielle : seuls les champs **présents** dans [body] sont appliqués.
+	 * Omis = conserver. `companyName` / `contentTopic` requis uniquement s’ils sont dans le body.
+	 */
+	fun patchSettings(
+		body: JsonNode,
+		updatedByEmail: String,
+	): Mono<OrganizationSettingsResponse> =
+		findOrCreateSettings()
+			.flatMap { existing ->
+				val base = clearUnreadableKeys(existing)
+				Mono.defer {
+					val patched = applyPatch(base, body)
+					val accountCheck =
+						if (body.has("activeLinkedInAccountId")) {
+							validateActiveLinkedInAccountId(patched.activeLinkedInAccountId)
+						} else {
+							Mono.empty()
+						}
+					accountCheck.then(
+						organizationSettingsRepository.save(
+							patched.copy(
+								updatedAt = Instant.now(),
+								updatedBy = updatedByEmail,
+							),
+						),
+					)
+				}
+			}
+			.map(::toResponse)
+			.flatMap(::overlayActiveLinkedInApp)
+
+	private fun applyPatch(base: OrganizationSettings, body: JsonNode): OrganizationSettings {
+		var next = base
+		var schedulerTouched = false
+
+		if (body.has("companyName")) {
+			val name = textValue(body, "companyName").trim()
+			if (name.isEmpty()) {
+				throw IllegalArgumentException("companyName must not be blank")
+			}
+			if (name.length > 200) {
+				throw IllegalArgumentException("companyName must be at most 200 characters")
+			}
+			next = next.copy(companyName = name)
+		}
+		if (body.has("companyTagline")) {
+			next = next.copy(companyTagline = normalizeOptionalText(nullableText(body, "companyTagline"), 120))
+		}
+		if (body.has("industry")) {
+			next = next.copy(industry = normalizeOptionalText(nullableText(body, "industry"), 120))
+		}
+		if (body.has("websiteUrl")) {
+			val websiteUrl = normalizeOptionalText(nullableText(body, "websiteUrl"), 500)
+			validateWebsiteUrl(websiteUrl)
+			next = next.copy(websiteUrl = websiteUrl)
+		}
+		if (body.has("contentTopic")) {
+			val topic = textValue(body, "contentTopic").trim()
+			if (topic.isEmpty()) {
+				throw IllegalArgumentException("contentTopic must not be blank")
+			}
+			if (topic.length > 2000) {
+				throw IllegalArgumentException("contentTopic must be at most 2000 characters")
+			}
+			next = next.copy(contentTopic = topic)
+		}
+		if (body.has("contentLanguage")) {
+			next = next.copy(contentLanguage = enumValue(body, "contentLanguage", ContentLanguage::class.java))
+		}
+		if (body.has("brandTone")) {
+			next = next.copy(brandTone = enumValue(body, "brandTone", BrandTone::class.java))
+		}
+		if (body.has("targetAudience")) {
+			next = next.copy(targetAudience = normalizeOptionalText(nullableText(body, "targetAudience"), 2000))
+		}
+		if (body.has("brandGuidelines")) {
+			next = next.copy(brandGuidelines = normalizeOptionalText(nullableText(body, "brandGuidelines"), 4000))
+		}
+		if (body.has("defaultHashtags")) {
+			next = next.copy(defaultHashtags = normalizeOptionalText(nullableText(body, "defaultHashtags"), 300))
+		}
+		if (body.has("contentPillars")) {
+			next = next.copy(contentPillars = normalizeOptionalText(nullableText(body, "contentPillars"), 2000))
+		}
+		if (body.has("topicsToAvoid")) {
+			next = next.copy(topicsToAvoid = normalizeOptionalText(nullableText(body, "topicsToAvoid"), 2000))
+		}
+		if (body.has("contentGoals")) {
+			next = next.copy(contentGoals = normalizeOptionalText(nullableText(body, "contentGoals"), 2000))
+		}
+		if (body.has("preferredFormats")) {
+			next = next.copy(
+				preferredFormats = resolvePreferredFormats(base.preferredFormats, readEnumList(body, "preferredFormats", ContentFormat::class.java)),
+			)
+		}
+		if (body.has("callToActionPreference")) {
+			next = next.copy(
+				callToActionPreference = normalizeOptionalText(nullableText(body, "callToActionPreference"), 500),
+			)
+		}
+		if (body.has("emojiPolicy")) {
+			next = next.copy(emojiPolicy = enumValue(body, "emojiPolicy", EmojiPolicy::class.java))
+		}
+		if (body.has("postLengthPreference")) {
+			next = next.copy(
+				postLengthPreference = enumValue(body, "postLengthPreference", PostLengthPreference::class.java),
+			)
+		}
+		if (body.has("mustIncludeKeywords")) {
+			next = next.copy(
+				mustIncludeKeywords = normalizeOptionalText(nullableText(body, "mustIncludeKeywords"), 500),
+			)
+		}
+		if (body.has("examplePostStyle")) {
+			next = next.copy(examplePostStyle = normalizeOptionalText(nullableText(body, "examplePostStyle"), 4000))
+		}
+		if (body.has("publishHourUtc")) {
+			val hour = body.get("publishHourUtc").asInt(-1)
+			if (hour !in 0..23) {
+				throw IllegalArgumentException("publishHourUtc must be between 0 and 23")
+			}
+			next = next.copy(publishHourUtc = hour)
+			schedulerTouched = true
+		}
+		if (body.has("timezone")) {
+			val tz = textValue(body, "timezone").trim()
+			if (tz.isEmpty()) {
+				throw IllegalArgumentException("timezone must not be blank")
+			}
+			validateTimezone(tz)
+			next = next.copy(timezone = tz)
+			schedulerTouched = true
+		}
+		if (body.has("activeLlmProvider")) {
+			next = next.copy(activeLlmProvider = enumValue(body, "activeLlmProvider", LlmProvider::class.java))
+		}
+		if (body.has("openAiModel")) {
+			next = next.copy(openAiModel = resolveModel(base.openAiModel, nullableText(body, "openAiModel"), LlmProvider.OPENAI))
+		}
+		if (body.has("anthropicModel")) {
+			next = next.copy(
+				anthropicModel = resolveModel(base.anthropicModel, nullableText(body, "anthropicModel"), LlmProvider.ANTHROPIC),
+			)
+		}
+		if (body.has("geminiModel")) {
+			next = next.copy(geminiModel = resolveModel(base.geminiModel, nullableText(body, "geminiModel"), LlmProvider.GEMINI))
+		}
+		if (body.has("openAiApiKey")) {
+			next = next.copy(encryptedOpenAiKey = resolveEncryptedKey(base.encryptedOpenAiKey, nullableText(body, "openAiApiKey")))
+		}
+		if (body.has("anthropicApiKey")) {
+			next = next.copy(
+				encryptedAnthropicKey = resolveEncryptedKey(base.encryptedAnthropicKey, nullableText(body, "anthropicApiKey")),
+			)
+		}
+		if (body.has("geminiApiKey")) {
+			next = next.copy(encryptedGeminiKey = resolveEncryptedKey(base.encryptedGeminiKey, nullableText(body, "geminiApiKey")))
+		}
+		if (body.has("linkedInOrganizationId")) {
+			val raw = nullableText(body, "linkedInOrganizationId")?.trim()?.takeIf { it.isNotEmpty() }
+			next = next.copy(linkedInOrganizationId = raw)
+		}
+		// linkedInClientId / secret : ignorés (multi-apps)
+		if (body.has("activeLinkedInAccountId")) {
+			val raw = nullableText(body, "activeLinkedInAccountId")
+			next = next.copy(
+				activeLinkedInAccountId = when {
+					raw == null -> null
+					raw.isBlank() -> null
+					else -> raw.trim()
+				},
+			)
+		}
+		if (body.has("schedulerEnabled")) {
+			next = next.copy(schedulerEnabled = body.get("schedulerEnabled").asBoolean())
+			schedulerTouched = true
+		}
+		if (body.has("schedulerFrequency")) {
+			next = next.copy(schedulerFrequency = enumValue(body, "schedulerFrequency", SchedulerFrequency::class.java))
+			schedulerTouched = true
+		}
+		if (body.has("schedulerDaysOfWeek")) {
+			val days = body.get("schedulerDaysOfWeek").map { it.asInt() }
+			next = next.copy(schedulerDaysOfWeek = resolveSchedulerDays(base.schedulerDaysOfWeek, days))
+			schedulerTouched = true
+		}
+		if (body.has("schedulerIntervalDays")) {
+			next = next.copy(schedulerIntervalDays = body.get("schedulerIntervalDays").asInt())
+			schedulerTouched = true
+		}
+		if (body.has("schedulerAnchorDate")) {
+			next = next.copy(
+				schedulerAnchorDate = resolveSchedulerAnchor(base.schedulerAnchorDate, nullableText(body, "schedulerAnchorDate")),
+			)
+			schedulerTouched = true
+		}
+
+		if (schedulerTouched) {
+			validateSchedulerConfig(
+				next.schedulerFrequency,
+				next.schedulerDaysOfWeek,
+				next.schedulerIntervalDays,
+			)
+		}
+		return next
+	}
+
+	private fun textValue(body: JsonNode, field: String): String {
+		val node = body.get(field)
+		if (node == null || node.isNull) {
+			return ""
+		}
+		return node.asText("")
+	}
+
+	/** `null` JSON → null Kotlin ; sinon texte (peut être blank). */
+	private fun nullableText(body: JsonNode, field: String): String? {
+		val node = body.get(field) ?: return null
+		if (node.isNull) {
+			return null
+		}
+		return node.asText()
+	}
+
+	private fun <E : Enum<E>> enumValue(body: JsonNode, field: String, type: Class<E>): E {
+		val raw = textValue(body, field).trim()
+		if (raw.isEmpty()) {
+			throw IllegalArgumentException("$field must not be blank")
+		}
+		return try {
+			java.lang.Enum.valueOf(type, raw)
+		} catch (_: IllegalArgumentException) {
+			throw IllegalArgumentException("Invalid $field: $raw")
+		}
+	}
+
+	private fun <E : Enum<E>> readEnumList(body: JsonNode, field: String, type: Class<E>): List<E> {
+		val node = body.get(field)
+		if (node == null || node.isNull) {
+			return emptyList()
+		}
+		if (!node.isArray) {
+			throw IllegalArgumentException("$field must be an array")
+		}
+		return node.map { item ->
+			val raw = item.asText("").trim()
+			try {
+				java.lang.Enum.valueOf(type, raw)
+			} catch (_: IllegalArgumentException) {
+				throw IllegalArgumentException("Invalid $field value: $raw")
+			}
+		}
+	}
 
 	/**
 	 * Credentials de l’**app LinkedIn active** (`/api/linkedin/apps`).

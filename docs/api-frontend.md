@@ -494,6 +494,41 @@ Les anciens modèles `gemini-2.x` indisponibles sont remappés automatiquement.
 - Champ clé/secret vide au submit → envoyer `null` (ou omettre) pour ne pas écraser.
 - Choisir le compte LinkedIn de publication via `activeLinkedInAccountId` (liste = `GET /api/linkedin/accounts`).
 
+### 3.4 PATCH partiel (Paramètres par section) — **recommandé UI**
+
+| | |
+|--|--|
+| **Méthode** | `PATCH` |
+| **URL** | `/api/settings` |
+| **Auth** | Bearer |
+| **Succès** | `200` |
+
+Body = **sous-ensemble** de champs. Omis = **conserver**. Création lazy si aucune ligne settings.
+
+| Présence | Effet |
+|----------|--------|
+| Champ omis | Conserver |
+| Texte optionnel `null` / `""` | Vider |
+| Clé API `null` / `""` / omis | Conserver le secret chiffré |
+| Clé API non vide | Remplacer |
+| `companyName` / `contentTopic` **présents** | trim ; vide → `400` |
+| `companyName` / `contentTopic` **absents** | ne pas toucher / **pas requis** |
+
+```http
+PATCH /api/settings
+{ "geminiApiKey": "AIza…", "geminiModel": "gemini-2.0-flash" }
+```
+
+→ **200** même si `companyName` est encore vide.
+
+```json
+{ "companyName": "Revlut" }
+```
+
+→ **200** sans `contentTopic`.
+
+`PUT` reste disponible (snapshot complet, compat).
+
 ---
 
 ## 4. Génération IA — `/api/ai`
@@ -811,7 +846,7 @@ Agrège en **1 round-trip** : counts publications, prochaine tick scheduler, pro
 | Guard / header user | `GET /api/auth/me` |
 | Profil (édition) | `PUT /api/auth/me` |
 | Changement MDP | `POST /api/auth/change-password` |
-| Settings org | `GET` + `PUT /api/settings` (plus de Client ID/Secret LinkedIn) |
+| Settings org | `GET` + `PATCH` (sections) / `PUT` (compat) `/api/settings` |
 | Dropdowns modèles | `GET /api/settings/llm-models` |
 | Bouton « Générer un tip » | `POST /api/ai/generate-test` |
 | LinkedIn apps | `GET/POST/PUT/DELETE /api/linkedin/apps…` + audit / health / verify |
@@ -847,7 +882,8 @@ Agrège en **1 round-trip** : counts publications, prochaine tick scheduler, pro
 | `POST` | `/api/auth/change-password` | Oui | `{ currentPassword, newPassword }` | `204` |
 | `GET` | `/api/settings` | Oui | — | `200` |
 | `GET` | `/api/settings/llm-models` | Oui | — | `200` |
-| `PUT` | `/api/settings` | Oui | settings (§3.3) | `200` |
+| `PUT` | `/api/settings` | Oui | settings complets (§3.3) | `200` |
+| `PATCH` | `/api/settings` | Oui | sous-ensemble (§3.4) | `200` / `400` |
 | `POST` | `/api/ai/generate-test` | Oui | `{ llmProvider?, topic?, brandTone?, contentLanguage?, useOrgBrief? }` | `200` |
 | `GET` | `/api/linkedin/summary` | Oui | — | `200` |
 | `GET` | `/api/linkedin/apps` | Oui | — | `200` |

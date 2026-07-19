@@ -64,7 +64,7 @@ class SecurityConfig(
 					.pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 					.pathMatchers("/api/auth/login").permitAll()
 					.pathMatchers("/api/linkedin/callback").permitAll()
-					.pathMatchers("/actuator/health/**").permitAll()
+					.pathMatchers("/actuator/health", "/actuator/health/**").permitAll()
 					.anyExchange().authenticated()
 			}
 			.exceptionHandling { exceptions ->

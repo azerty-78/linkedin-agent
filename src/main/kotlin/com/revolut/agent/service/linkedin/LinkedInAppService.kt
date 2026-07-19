@@ -202,27 +202,35 @@ class LinkedInAppService(
 		findOwned(appId, organizationId)
 			.flatMap { target ->
 				linkedInAppRepository.findAllByOrganizationIdOrderByCreatedAtAsc(organizationId)
-					.flatMap { app ->
-						val shouldBeActive = app.id == target.id
-						if (app.isActive == shouldBeActive) {
-							Mono.just(app)
-						} else {
-							linkedInAppRepository.save(
-								app.copy(isActive = shouldBeActive, updatedAt = Instant.now()),
-							)
-						}
+					.collectList()
+					.flatMap { all ->
+						Flux.fromIterable(all)
+							.concatMap { app ->
+								linkedInAppRepository.save(
+									app.copy(
+										isActive = app.id == target.id,
+										updatedAt = Instant.now(),
+									),
+								)
+							}
+							.collectList()
+							.flatMap { saved ->
+								appendAudit(
+									organizationId = organizationId,
+									appId = target.id,
+									appLabel = target.label,
+									action = LinkedInAppAuditAction.ACTIVATED,
+									summary = "Application « ${target.label} » définie comme active",
+									actorEmail = actorEmail,
+								).thenReturn(
+									LinkedInAppListResponse(
+										apps = saved.sortedBy { it.createdAt }.map(::toResponse),
+										maxApps = LinkedInApp.MAX_APPS,
+										activeAppId = saved.firstOrNull { it.isActive }?.id,
+									),
+								)
+							}
 					}
-					.then(
-						appendAudit(
-							organizationId = organizationId,
-							appId = target.id,
-							appLabel = target.label,
-							action = LinkedInAppAuditAction.ACTIVATED,
-							summary = "Application « ${target.label} » définie comme active",
-							actorEmail = actorEmail,
-						),
-					)
-					.then(listApps(organizationId))
 			}
 
 	fun deleteApp(
@@ -293,81 +301,101 @@ class LinkedInAppService(
 		listApps(organizationId)
 			.zipWith(
 				organizationSettingsRepository.findFirstByOrderByUpdatedAtDesc()
-					.map { it.activeLinkedInAccountId }
+					.map { settings -> settings.activeLinkedInAccountId.orEmpty() }
 					.defaultIfEmpty(""),
 			)
 			.flatMap { tuple ->
 				val apps = tuple.t1
-				val accountId = tuple.t2?.takeIf { it.isNotBlank() }
+				val accountId = tuple.t2.takeIf { it.isNotBlank() }
 				val active = apps.apps.firstOrNull { it.isActive }
 				val checks = mutableListOf<LinkedInAppHealthCheck>()
 
-				if (active == null) {
-					checks += LinkedInAppHealthCheck("CREDENTIALS_PRESENT", "FAIL", "Aucune application active")
-				} else if (active.clientSecretMasked.isBlank()) {
-					checks += LinkedInAppHealthCheck("CREDENTIALS_PRESENT", "FAIL", "Secret manquant sur l’app active")
-				} else {
-					checks += LinkedInAppHealthCheck(
-						"CREDENTIALS_PRESENT",
-						"OK",
-						"App active « ${active.label} » avec secret",
-					)
-				}
-
-				val accountMono = if (accountId == null) {
-					Mono.empty()
-				} else {
-					linkedInConnectionRepository.findById(accountId)
-				}
-
-				accountMono
-					.map { account ->
-						var tokenExpiringSoon = false
-						when {
-							account.status != LinkedInConnectionStatus.CONNECTED ->
-								checks += LinkedInAppHealthCheck(
-									"TOKEN_VALID",
-									"FAIL",
-									"Compte actif non CONNECTED (${account.status})",
-								)
-							else -> {
-								val expires = account.accessTokenExpiresAt
-								when {
-									expires == null ->
-										checks += LinkedInAppHealthCheck("TOKEN_VALID", "WARN", "Expiration token inconnue")
-									expires.isBefore(Instant.now()) ->
-										checks += LinkedInAppHealthCheck("TOKEN_VALID", "FAIL", "Token expiré")
-									Duration.between(Instant.now(), expires).toDays() <= 7 -> {
-										tokenExpiringSoon = true
-										checks += LinkedInAppHealthCheck("TOKEN_VALID", "WARN", "Token expire bientôt")
-									}
-									else ->
-										checks += LinkedInAppHealthCheck("TOKEN_VALID", "OK", "Token valide")
-								}
-								if (account.linkedInOrganizationUrn.isNullOrBlank()) {
-									checks += LinkedInAppHealthCheck("PAGE_URN_SET", "FAIL", "URN Page manquant")
-								} else {
-									checks += LinkedInAppHealthCheck("PAGE_URN_SET", "OK", "URN Page configuré")
-								}
-							}
-						}
-						LinkedInAppHealthResponse(
-							ok = checks.none { it.status == "FAIL" },
-							tokenExpiringSoon = tokenExpiringSoon,
-							checks = checks,
+				when {
+					active == null ->
+						checks += LinkedInAppHealthCheck("CREDENTIALS_PRESENT", "FAIL", "Aucune application active")
+					active.clientSecretMasked.isBlank() ->
+						checks += LinkedInAppHealthCheck("CREDENTIALS_PRESENT", "FAIL", "Secret manquant sur l’app active")
+					else ->
+						checks += LinkedInAppHealthCheck(
+							"CREDENTIALS_PRESENT",
+							"OK",
+							"App active « ${active.label} » avec secret",
 						)
-					}
-					.defaultIfEmpty(
-						LinkedInAppHealthResponse(
-							ok = checks.none { it.status == "FAIL" },
-							tokenExpiringSoon = false,
-							checks = checks + LinkedInAppHealthCheck(
-								"TOKEN_VALID",
-								"WARN",
-								"Aucun compte LinkedIn actif",
+				}
+
+				val accountLookup: Mono<LinkedInAppHealthResponse> =
+					if (accountId == null) {
+						Mono.just(
+							LinkedInAppHealthResponse(
+								ok = checks.none { it.status == "FAIL" },
+								tokenExpiringSoon = false,
+								checks = checks + LinkedInAppHealthCheck(
+									"TOKEN_VALID",
+									"WARN",
+									"Aucun compte LinkedIn actif",
+								),
 							),
-						),
-					)
+						)
+					} else {
+						linkedInConnectionRepository.findById(accountId)
+							.map { account ->
+								var tokenExpiringSoon = false
+								when {
+									account.status != LinkedInConnectionStatus.CONNECTED ->
+										checks += LinkedInAppHealthCheck(
+											"TOKEN_VALID",
+											"FAIL",
+											"Compte actif non CONNECTED (${account.status})",
+										)
+									else -> {
+										val expires = account.accessTokenExpiresAt
+										when {
+											expires == null ->
+												checks += LinkedInAppHealthCheck(
+													"TOKEN_VALID",
+													"WARN",
+													"Expiration token inconnue",
+												)
+											expires.isBefore(Instant.now()) ->
+												checks += LinkedInAppHealthCheck("TOKEN_VALID", "FAIL", "Token expiré")
+											Duration.between(Instant.now(), expires).toDays() <= 7 -> {
+												tokenExpiringSoon = true
+												checks += LinkedInAppHealthCheck(
+													"TOKEN_VALID",
+													"WARN",
+													"Token expire bientôt",
+												)
+											}
+											else ->
+												checks += LinkedInAppHealthCheck("TOKEN_VALID", "OK", "Token valide")
+										}
+										if (account.linkedInOrganizationUrn.isNullOrBlank()) {
+											checks += LinkedInAppHealthCheck("PAGE_URN_SET", "FAIL", "URN Page manquant")
+										} else {
+											checks += LinkedInAppHealthCheck("PAGE_URN_SET", "OK", "URN Page configuré")
+										}
+									}
+								}
+								LinkedInAppHealthResponse(
+									ok = checks.none { it.status == "FAIL" },
+									tokenExpiringSoon = tokenExpiringSoon,
+									checks = checks.toList(),
+								)
+							}
+							.defaultIfEmpty(
+								LinkedInAppHealthResponse(
+									ok = checks.none { it.status == "FAIL" },
+									tokenExpiringSoon = false,
+									checks = checks + LinkedInAppHealthCheck(
+										"TOKEN_VALID",
+										"WARN",
+										"Compte LinkedIn actif introuvable",
+									),
+								),
+							)
+					}
+
+				accountLookup
 			}
 
 	fun verifyApp(
@@ -439,10 +467,10 @@ class LinkedInAppService(
 	fun countApps(organizationId: String = LinkedInApp.DEFAULT_ORGANIZATION_ID): Mono<Long> =
 		linkedInAppRepository.countByOrganizationId(organizationId)
 
-	fun activeAppId(organizationId: String = LinkedInApp.DEFAULT_ORGANIZATION_ID): Mono<String?> =
+	fun activeAppId(organizationId: String = LinkedInApp.DEFAULT_ORGANIZATION_ID): Mono<String> =
 		linkedInAppRepository.findByOrganizationIdAndIsActiveTrue(organizationId)
-			.map { it.id }
-			.defaultIfEmpty(null as String?)
+			.mapNotNull { it.id }
+			.defaultIfEmpty("")
 
 	private fun autoActivateNewest(organizationId: String): Mono<Void> =
 		linkedInAppRepository.findAllByOrganizationIdOrderByCreatedAtAsc(organizationId)

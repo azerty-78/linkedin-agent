@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.mockito.ArgumentMatchers.any
+import org.mockito.ArgumentMatchers.anyString
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.`when`
 import org.springframework.core.env.StandardEnvironment
@@ -61,15 +62,15 @@ class LinkedInAppServiceTest {
 		}
 		`when`(appRepository.findAllByOrganizationIdOrderByCreatedAtAsc(LinkedInApp.DEFAULT_ORGANIZATION_ID))
 			.thenAnswer { Flux.fromIterable(apps.sortedBy { it.createdAt }) }
-		`when`(appRepository.existsByOrganizationIdAndClientId(any(), any())).thenAnswer { inv ->
+		`when`(appRepository.existsByOrganizationIdAndClientId(anyString(), anyString())).thenAnswer { inv ->
 			val clientId = inv.getArgument<String>(1)
 			Mono.just(apps.any { it.clientId == clientId })
 		}
-		`when`(appRepository.findByIdAndOrganizationId(any(), any())).thenAnswer { inv ->
+		`when`(appRepository.findByIdAndOrganizationId(anyString(), anyString())).thenAnswer { inv ->
 			val id = inv.getArgument<String>(0)
 			Mono.justOrEmpty(apps.firstOrNull { it.id == id })
 		}
-		`when`(appRepository.findByOrganizationIdAndIsActiveTrue(any())).thenAnswer {
+		`when`(appRepository.findByOrganizationIdAndIsActiveTrue(anyString())).thenAnswer {
 			Mono.justOrEmpty(apps.firstOrNull { it.isActive })
 		}
 		`when`(appRepository.save(any(LinkedInApp::class.java))).thenAnswer { inv ->
@@ -144,21 +145,24 @@ class LinkedInAppServiceTest {
 
 	@Test
 	fun `activate is exclusive`() {
-		service.createApp(
+		val first = service.createApp(
 			CreateLinkedInAppRequest(label = "A", clientId = "clientidaa", clientSecret = "s1"),
 			"a@b.c",
-		).block()
-		service.createApp(
+		).block()!!
+		val second = service.createApp(
 			CreateLinkedInAppRequest(label = "B", clientId = "clientidbb", clientSecret = "s2"),
 			"a@b.c",
-		).block()
+		).block()!!
 
-		val secondId = apps.first { it.label == "B" }.id!!
+		val secondId = second.apps.first { it.label == "B" }.id
+		assertEquals(first.apps.first { it.label == "A" }.id, first.activeAppId)
+		assertEquals(first.activeAppId, second.activeAppId) // encore A après 2e create
 
 		StepVerifier.create(service.activateApp(secondId, "a@b.c"))
 			.assertNext { list ->
 				assertEquals(secondId, list.activeAppId)
 				assertEquals(1, list.apps.count { it.isActive })
+				assertTrue(list.apps.first { it.id == secondId }.isActive)
 			}
 			.verifyComplete()
 	}

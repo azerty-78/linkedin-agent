@@ -639,7 +639,7 @@ Défaut : `w_organization_social r_organization_social`.
 
 ## 8bis. Publication LinkedIn — `/api/linkedin/publish-test` & historique
 
-> Publie sur la Page du **compte actif**.
+> Publie sur la Page du **compte actif**, avec credentials de l’**app active**.
 
 **Prérequis** : `GET /summary` → `canPublish: true`.
 
@@ -754,9 +754,10 @@ CSV : `id,triggeredAt,completedAt,triggerType,status,triggeredBy,contentExcerpt,
 | Guard / header user | `GET /api/auth/me` |
 | Profil (édition) | `PUT /api/auth/me` |
 | Changement MDP | `POST /api/auth/change-password` |
-| Settings org (+ LinkedIn app) | `GET` + `PUT /api/settings` |
+| Settings org | `GET` + `PUT /api/settings` (plus de Client ID/Secret LinkedIn) |
 | Dropdowns modèles | `GET /api/settings/llm-models` |
 | Bouton « Générer un tip » | `POST /api/ai/generate-test` |
+| LinkedIn apps | `GET/POST/PUT/DELETE /api/linkedin/apps…` + audit / health / verify |
 | LinkedIn résumé / Test | `GET /api/linkedin/summary` |
 | LinkedIn compte actif | `GET /api/linkedin/accounts/active` |
 | LinkedIn comptes + activate | `GET/POST/PUT/DELETE /api/linkedin/accounts…` |
@@ -791,6 +792,15 @@ CSV : `id,triggeredAt,completedAt,triggerType,status,triggeredBy,contentExcerpt,
 | `PUT` | `/api/settings` | Oui | settings (§3.3) | `200` |
 | `POST` | `/api/ai/generate-test` | Oui | `{ llmProvider?, topic?, brandTone?, contentLanguage?, useOrgBrief? }` | `200` |
 | `GET` | `/api/linkedin/summary` | Oui | — | `200` |
+| `GET` | `/api/linkedin/apps` | Oui | — | `200` |
+| `POST` | `/api/linkedin/apps` | Oui | `{ label?, clientId, clientSecret }` | `201` / `409` |
+| `PUT` | `/api/linkedin/apps/{id}` | Oui | update | `200` / `404` |
+| `PUT` | `/api/linkedin/apps/{id}/activate` | Oui | — | `200` |
+| `DELETE` | `/api/linkedin/apps/{id}` | Oui | — | `204` |
+| `GET` | `/api/linkedin/apps/audit` | Oui | `page`, `size` | `200` |
+| `GET` | `/api/linkedin/apps/audit/export` | Oui | — | `200` |
+| `GET` | `/api/linkedin/apps/health` | Oui | — | `200` |
+| `POST` | `/api/linkedin/apps/{id}/verify` | Oui | — | `200` |
 | `GET` | `/api/linkedin/accounts` | Oui | — | `200` |
 | `GET` | `/api/linkedin/accounts/active` | Oui | — | `200` / `404` |
 | `POST` | `/api/linkedin/accounts/connect` | Oui | query `label?` | `200` / `409` |

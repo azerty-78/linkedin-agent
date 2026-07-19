@@ -12,6 +12,10 @@ interface PublicationRepository : ReactiveMongoRepository<Publication, String> {
 
 	fun findAllByOrderByTriggeredAtDesc(): Flux<Publication>
 
+	fun findTop5ByOrderByTriggeredAtDesc(): Flux<Publication>
+
+	fun countByStatus(status: PublicationStatus): Mono<Long>
+
 	fun existsByStatus(status: PublicationStatus): Mono<Boolean>
 
 	fun existsByStatusIn(statuses: Collection<PublicationStatus>): Mono<Boolean>
@@ -20,6 +24,11 @@ interface PublicationRepository : ReactiveMongoRepository<Publication, String> {
 		status: PublicationStatus,
 		publishAt: Instant,
 	): Flux<Publication>
+
+	fun findFirstByStatusAndScheduledPublishAtGreaterThanEqualOrderByScheduledPublishAtAsc(
+		status: PublicationStatus,
+		publishAt: Instant,
+	): Mono<Publication>
 
 	fun existsByTriggerTypeAndStatusInAndTriggeredAtGreaterThanEqualAndTriggeredAtLessThan(
 		triggerType: PublicationTriggerType,

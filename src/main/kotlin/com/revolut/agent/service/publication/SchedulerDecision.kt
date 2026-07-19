@@ -2,6 +2,7 @@ package com.revolut.agent.service.publication
 
 import com.revolut.agent.dto.settings.OrganizationSettingsResponse
 import com.revolut.agent.model.settings.SchedulerFrequency
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
@@ -65,4 +66,33 @@ object SchedulerDecision {
 		val shouldRun: Boolean,
 		val anchorToPersist: String? = null,
 	)
+
+	/**
+	 * Prochaine tick scheduler réelle : jour UTC à `publishHourUtc:00` encore dans / après
+	 * la fenêtre, et fréquence OK pour ce moment (calendrier org).
+	 * `null` si scheduler désactivé.
+	 */
+	fun computeNextScheduledAt(
+		settings: OrganizationSettingsResponse,
+		now: Instant = Instant.now(),
+	): Instant? {
+		if (!settings.schedulerEnabled) {
+			return null
+		}
+		val nowUtc = now.atZone(ZoneOffset.UTC)
+		val hour = settings.publishHourUtc.coerceIn(0, 23)
+
+		for (dayOffset in 0L..400L) {
+			val day = nowUtc.toLocalDate().plusDays(dayOffset)
+			val publishAt = day.atTime(hour, 0).atZone(ZoneOffset.UTC)
+			val windowEnd = publishAt.plusMinutes(WINDOW_MINUTES)
+			if (nowUtc.isAfter(windowEnd)) {
+				continue
+			}
+			if (evaluateFrequency(settings, publishAt).shouldRun) {
+				return publishAt.toInstant()
+			}
+		}
+		return null
+	}
 }

@@ -745,6 +745,63 @@ CSV : `id,triggeredAt,completedAt,triggerType,status,triggeredBy,contentExcerpt,
 
 ---
 
+## 8quater. Dashboard Accueil — `GET /api/dashboard/overview`
+
+| | |
+|--|--|
+| **Auth** | Bearer |
+| **Cache** | `Cache-Control: no-store` |
+| **Succès** | `200` |
+
+Agrège en **1 round-trip** : counts publications, prochaine tick scheduler, prochain one-shot, readiness, LinkedIn, résumé settings, 5 dernières runs.
+
+```json
+{
+  "fromBackend": true,
+  "counts": {
+    "total": 42,
+    "success": 30,
+    "failure": 3,
+    "awaitingReview": 2,
+    "scheduled": 1,
+    "inProgress": 0
+  },
+  "nextScheduledAt": "2026-07-19T09:00:00Z",
+  "nextOneShotAt": "2026-07-18T18:30:00Z",
+  "lastPublication": null,
+  "recentPublications": [],
+  "readiness": { "ready": true, "reasons": [] },
+  "linkedIn": {
+    "connected": true,
+    "accountsCount": 1,
+    "activeAccountsCount": 1,
+    "appsCount": 2,
+    "activeAppsCount": 1,
+    "maxApps": 3,
+    "activeLabel": "Page"
+  },
+  "settingsSummary": {
+    "companyName": "KOBE",
+    "schedulerEnabled": true,
+    "publishHourUtc": 9,
+    "timezone": "Europe/Paris",
+    "activeLlmProvider": "GEMINI",
+    "hasAnyLlmKey": true,
+    "configuredProvidersCount": 1,
+    "configuredProviders": ["GEMINI"]
+  }
+}
+```
+
+| Champ | Règle |
+|-------|--------|
+| `counts.success` | `SUCCESS` + `PARTIAL_SUCCESS` |
+| `nextScheduledAt` | Prochaine tick réelle (`null` si scheduler off) |
+| `nextOneShotAt` | Min `scheduledPublishAt` des runs `SCHEDULED` futurs |
+| `readiness` | Identique à `GET /api/publications/readiness` |
+
+---
+
 ## 9. Checklist intégration frontend
 
 | Écran | Endpoints |
@@ -764,6 +821,7 @@ CSV : `id,triggeredAt,completedAt,triggerType,status,triggeredBy,contentExcerpt,
 | Publier (test LinkedIn) | `POST /api/linkedin/publish-test` |
 | Historique LinkedIn records | `GET /api/linkedin/publications?limit=` |
 | Préflight publications | `GET /api/publications/readiness` |
+| Accueil dashboard | `GET /api/dashboard/overview` |
 | Orchestration manuelle | `POST /api/publications/trigger` `{ llmProvider?, awaitReview? }` |
 | Confirmer / annuler / régénérer / planifier | `POST …/confirm|cancel|regenerate|schedule` |
 | Historique filtré | `GET /api/publications?status&triggerType&from&to&page&size` |
@@ -812,6 +870,7 @@ CSV : `id,triggeredAt,completedAt,triggerType,status,triggeredBy,contentExcerpt,
 | `POST` | `/api/linkedin/publish-test` | Oui | `{ content? }` | `200` (ou `422`) |
 | `GET` | `/api/linkedin/publications` | Oui | query `limit?` | `200` |
 | `GET` | `/api/publications/readiness` | Oui | — | `200` |
+| `GET` | `/api/dashboard/overview` | Oui | — | `200` (`Cache-Control: no-store`) |
 | `GET` | `/api/publications/export` | Oui | `format`, filtres | `200` |
 | `POST` | `/api/publications/trigger` | Oui | `{ llmProvider?, awaitReview? }` | `200` / `409` / `422` |
 | `POST` | `/api/publications/{id}/confirm` | Oui | `{ content }` | `200` / `400` / `404` / `409` / `422` |

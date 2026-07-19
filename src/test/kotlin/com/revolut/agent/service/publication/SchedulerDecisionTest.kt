@@ -9,6 +9,7 @@ import com.revolut.agent.model.settings.PostLengthPreference
 import com.revolut.agent.model.settings.SchedulerFrequency
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.time.Instant
@@ -79,11 +80,50 @@ class SchedulerDecisionTest {
 		)
 	}
 
+	@Test
+	fun `nextScheduledAt is null when scheduler disabled`() {
+		assertNull(
+			SchedulerDecision.computeNextScheduledAt(
+				settings(SchedulerFrequency.DAILY, enabled = false),
+				Instant.parse("2026-07-20T08:00:00Z"),
+			),
+		)
+	}
+
+	@Test
+	fun `nextScheduledAt DAILY is today publish hour if window not passed`() {
+		val next = SchedulerDecision.computeNextScheduledAt(
+			settings(SchedulerFrequency.DAILY),
+			Instant.parse("2026-07-20T08:00:00Z"),
+		)
+		assertEquals(Instant.parse("2026-07-20T09:00:00Z"), next)
+	}
+
+	@Test
+	fun `nextScheduledAt DAILY skips today after window end`() {
+		val next = SchedulerDecision.computeNextScheduledAt(
+			settings(SchedulerFrequency.DAILY),
+			Instant.parse("2026-07-20T09:06:00Z"),
+		)
+		assertEquals(Instant.parse("2026-07-21T09:00:00Z"), next)
+	}
+
+	@Test
+	fun `nextScheduledAt WEEKDAYS skips weekend`() {
+		// Saturday 2026-07-18 08:00 → next Monday 20th 09:00
+		val next = SchedulerDecision.computeNextScheduledAt(
+			settings(SchedulerFrequency.WEEKDAYS),
+			Instant.parse("2026-07-18T08:00:00Z"),
+		)
+		assertEquals(Instant.parse("2026-07-20T09:00:00Z"), next)
+	}
+
 	private fun settings(
 		frequency: SchedulerFrequency,
 		days: List<Int> = emptyList(),
 		interval: Int = 2,
 		anchor: String? = null,
+		enabled: Boolean = true,
 	) = OrganizationSettingsResponse(
 		companyName = "KOBE",
 		companyTagline = null,
@@ -117,7 +157,7 @@ class SchedulerDecisionTest {
 		linkedInClientId = null,
 		linkedInClientSecretMasked = "",
 		activeLinkedInAccountId = null,
-		schedulerEnabled = true,
+		schedulerEnabled = enabled,
 		schedulerFrequency = frequency,
 		schedulerDaysOfWeek = days,
 		schedulerIntervalDays = interval,

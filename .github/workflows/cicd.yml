@@ -1,16 +1,10 @@
 # =============================================================================
 # CI/CD — Revolut LinkedIn Agent (Spring Boot / Kotlin + MongoDB)
 #
-# ÉTAT ACTUEL : DÉSACTIVÉ en automatique (pas de push/PR).
-# Seul `workflow_dispatch` est actif (lancement manuel depuis l’onglet Actions).
-# Push images + deploy : uniquement si la variable repo ENABLE_CICD_DEPLOY=true
-#   (Settings → Variables) — même en manuel, sinon arrêt après docker-build.
-# Quand prêt pour la prod :
-#   1) Décommenter le bloc `push` / `pull_request` / `tags` ci-dessous
-#   2) Définir ENABLE_CICD_DEPLOY=true
-#
-# Branches cibles (prévues) : main | master | develop
-# Push images + deploy VPS : main/master ou tags v*.*.* (pas PR, pas develop)
+# Triggers : push / PR / tags + workflow_dispatch.
+# Push images + deploy VPS : uniquement si ENABLE_CICD_DEPLOY=true
+#   (Settings → Variables) — sinon arrêt après docker-build.
+# Deploy : main/master ou tags v*.*.* (pas PR, pas develop).
 #
 # VPS : ~/kobe-corporation/revolut-agent/api/
 #   - .env (manuel, depuis setup/.env.prod.example)
@@ -23,19 +17,18 @@ name: CI/CD
 
 on:
   workflow_dispatch:
-  # --- Activer le CI/CD automatique en décommentant : ---
-  # push:
-  #   branches:
-  #     - main
-  #     - master
-  #     - develop
-  #   tags:
-  #     - "v*.*.*"
-  # pull_request:
-  #   branches:
-  #     - main
-  #     - master
-  #     - develop
+  push:
+    branches:
+      - main
+      - master
+      - develop
+    tags:
+      - "v*.*.*"
+  pull_request:
+    branches:
+      - main
+      - master
+      - develop
 
 concurrency:
   group: cicd-${{ github.workflow }}-${{ github.ref }}

@@ -43,5 +43,5 @@ out/
 setup/.env
 .env
 .env.local
-src/main/resources/application-prod.properties
+# application-prod.properties : OK à committer (secrets via env, pas de secrets en clair)
 

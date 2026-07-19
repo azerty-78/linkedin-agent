@@ -16,7 +16,7 @@
 - Create-if-missing sur `role=ADMIN` (ou email seed)
 - **Ne réécrit jamais** MDP / email / username si l’admin existe
 - Backfill `username` pour documents anciens (sans toucher au MDP)
-- Nouvelle prop optionnelle : `app.bootstrap.admin-username` / `ADMIN_USERNAME`
+- Seed depuis `BootstrapProperties.kt` (`adminEmail` / `adminPassword` / `adminUsername`) — pas via `.env`
 
 ### API
 | Endpoint | Comportement |
@@ -31,14 +31,14 @@
 - `renameUserEmail` sur sessions si email profil changé
 
 ### Docs
-- `docs/api-frontend.md`, `docs/fonctionnalites-et-securite.md`, `setup/.env.prod.example`
+- `docs/api-frontend.md`, `docs/fonctionnalites-et-securite.md`, `setup/.env.prod.example` (sans `ADMIN_*`)
 
 ---
 
 ## Ce qui marche
 
 - **Compile Kotlin** : `BUILD SUCCESSFUL`
-- Login = table `app_users` uniquement (pas de comparaison à `ADMIN_PASSWORD` au login)
+- Login = table `app_users` uniquement (pas de comparaison aux valeurs de `BootstrapProperties` au login)
 - Seed = create-if-missing only
 
 ---

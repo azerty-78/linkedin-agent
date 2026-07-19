@@ -38,13 +38,12 @@ docker compose -f compose.yml --env-file .env up -d
 
 ### 2. Variables d’environnement
 
-Copier / renseigner `setup/.env` (Mongo, JWT, admin, chiffrement, mail…).  
+Copier / renseigner `setup/.env` (Mongo, JWT, chiffrement, mail…).  
+L’admin initial vient de `BootstrapProperties.kt` (pas de `ADMIN_*` dans `.env`).  
 Spring Boot lit surtout les variables système ; exporter celles dont vous avez besoin, par exemple sous PowerShell :
 
 ```powershell
 $env:MONGODB_URI="mongodb://devroot:devpass@localhost:27017/linkedin_agent_db?authSource=admin"
-$env:ADMIN_EMAIL="votre-admin@email.com"
-$env:ADMIN_PASSWORD="votre-mot-de-passe"
 # Optionnel : openssl rand -base64 32
 $env:ENCRYPTION_KEY="..."
 $env:JWT_SECRET="dev-only-secret-change-me-min-32-characters-long"
@@ -61,16 +60,17 @@ $env:JWT_SECRET="dev-only-secret-change-me-min-32-characters-long"
 
 ### 4. Première connexion
 
-Si la collection `app_users` n’a pas encore d’ADMIN, un compte est créé au démarrage (`ADMIN_EMAIL` / `ADMIN_PASSWORD` / `ADMIN_USERNAME` optionnel).  
-Si l’ADMIN existe déjà, le seed **ne touche pas** au mot de passe ni au profil.
+Si la collection `app_users` n’a pas encore d’ADMIN, un compte est créé au démarrage
+depuis `BootstrapProperties` (`adminEmail` / `adminPassword` / `adminUsername`).
+Pas de `ADMIN_*` dans `.env`. Si l’ADMIN existe déjà → **aucun écrasement** (ni MDP, ni profil).
 
 ```http
 POST http://localhost:8080/api/auth/login
 Content-Type: application/json
 
 {
-  "email": "<ADMIN_EMAIL>",
-  "password": "<ADMIN_PASSWORD>"
+  "email": "<valeurs dans BootstrapProperties.kt>",
+  "password": "<valeurs dans BootstrapProperties.kt>"
 }
 ```
 

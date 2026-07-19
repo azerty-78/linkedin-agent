@@ -208,7 +208,7 @@ Après changement d’email, le prochain login utilise le nouvel email.
 **Erreurs** : `400` — MDP actuel incorrect ou nouveau trop court.
 
 Les autres sessions du compte sont révoquées ; la session courante reste valide.  
-Source de vérité = hash en DB (`app_users`). `ADMIN_PASSWORD` / `.env` ne sert **qu’au seed initial**.
+Source de vérité = hash en DB (`app_users`). Le seed initial vient de `BootstrapProperties.kt` (pas de `.env`).
 
 ---
 
@@ -223,7 +223,7 @@ Source de vérité = hash en DB (`app_users`). `ADMIN_PASSWORD` / `.env` ne sert
 
 Révoque la session courante (le JWT ne fonctionne plus). Appeler avant de supprimer le token côté front.
 
-> **Bootstrap ADMIN** : au démarrage, si aucun `ADMIN` en base → création depuis `ADMIN_EMAIL` / `ADMIN_PASSWORD` / `ADMIN_USERNAME` (optionnel). Si l’ADMIN existe déjà → **aucune écrasement** du mot de passe ni du profil.
+> **Bootstrap ADMIN** : au démarrage, si aucun `ADMIN` en base → création depuis `BootstrapProperties` (`adminEmail` / `adminPassword` / `adminUsername`). Si l’ADMIN existe déjà → **aucun écrasement** du mot de passe ni du profil.
 
 ---
 

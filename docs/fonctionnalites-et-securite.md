@@ -56,12 +56,12 @@ Fichier : `config/SecurityConfig.kt`, `config/JwtAuthenticationWebFilter.kt`
 Au démarrage (`AdminBootstrapRunner`) :
 
 - Cherche un user `role = ADMIN` (ou l’email seed) en base
-- **S’il n’existe pas** → création avec `ADMIN_EMAIL` / `ADMIN_PASSWORD` / `ADMIN_USERNAME` (optionnel, sinon partie locale de l’email)
+- **S’il n’existe pas** → création depuis `BootstrapProperties.kt` (`adminEmail` / `adminPassword` / `adminUsername`)
 - Mot de passe stocké en **BCrypt**
 - **S’il existe déjà** → **ne rien écraser** (ni MDP, ni email, ni username) — log `Admin user already present — skip seed`
 - Backfill `username` si documents anciens sans ce champ (sans toucher au MDP)
 
-`ADMIN_*` / `app.bootstrap.*` = **fallback de création initiale uniquement**. Après un changement de MDP via Profil, **seul le hash en DB compte**.
+`BootstrapProperties` = **création initiale uniquement** (pas via `.env`). Après un changement de MDP via Profil, **seul le hash en DB compte**.
 
 Pour forcer un nouvel admin : vider `app_users` puis redémarrer l’application.
 
@@ -251,7 +251,7 @@ Organisation par **domaine métier** (pas seulement par couche technique).
 |----------|--------|------|
 | `MONGODB_URI` | Connexion Mongo | Obligatoire |
 | `JWT_SECRET` | Signature JWT (≥ 32 car.) | Obligatoire |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD` / `ADMIN_USERNAME` | Bootstrap admin (create-if-missing only) | Obligatoire si aucun ADMIN |
+| — | Admin seed = `BootstrapProperties.kt` (pas d’`ADMIN_*` env) | Create-if-missing |
 | `ENCRYPTION_KEY` | AES-256 (Base64 32 bytes) | Obligatoire |
 | `MAIL_HOST` / `MAIL_USERNAME` / `MAIL_PASSWORD` | SMTP | Obligatoire en prod |
 | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | Placeholders auto-config Spring AI | Présents ; runtime via settings |

@@ -55,10 +55,10 @@ jwt.secret=${JWT_SECRET}
 jwt.expiration=86400000
 
 # ========================================
-# BOOTSTRAP ADMIN (obligatoire en prod via variables d'environnement)
+# BOOTSTRAP ADMIN
 # ========================================
-app.bootstrap.admin-email=${ADMIN_EMAIL}
-app.bootstrap.admin-password=${ADMIN_PASSWORD}
+# Source de vérité = BootstrapProperties.kt (pas de ADMIN_* dans .env).
+# Seed only-if-missing — jamais d’écrasement si l’admin existe déjà.
 
 # ========================================
 # ENCRYPTION (AES-256 — obligatoire en prod)

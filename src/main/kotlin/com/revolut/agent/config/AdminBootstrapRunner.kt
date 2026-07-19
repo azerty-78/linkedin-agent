@@ -55,14 +55,15 @@ class AdminBootstrapRunner(
 			.doOnSuccess {
 				log.warn(
 					"Default admin account created (email='{}', username='{}'). " +
-						"Change ADMIN_EMAIL / ADMIN_PASSWORD / ADMIN_USERNAME if using defaults.",
+						"Credentials come from BootstrapProperties — change password via Profil after login.",
 					seedEmail,
 					seedUsername,
 				)
 				if (isUsingDefaultCredentials()) {
 					log.warn(
-						"SECURITY: default bootstrap credentials detected " +
-							"(email='{}'). Override ADMIN_EMAIL and ADMIN_PASSWORD before production.",
+						"SECURITY: bootstrap default credentials in use (email='{}'). " +
+							"Change them in BootstrapProperties.kt before a public deploy, " +
+							"or update the password via Profil once logged in.",
 						seedEmail,
 					)
 				}

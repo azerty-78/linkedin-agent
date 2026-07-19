@@ -32,6 +32,6 @@
 
 # Docker meta (éviter boucles)
 **/setup/compose.prod.yaml
-**/setup/docker-compose.yml
+**/setup/compose.yml
 **/setup/.env.example
 **/setup/.env.prod.example

@@ -33,7 +33,7 @@ Documentation détaillée (rôles, permissions, features, API) : [`docs/fonction
 
 ```bash
 cd setup
-docker compose -f docker-compose.yml --env-file .env up -d
+docker compose -f compose.yml --env-file .env up -d
 ```
 
 ### 2. Variables d’environnement

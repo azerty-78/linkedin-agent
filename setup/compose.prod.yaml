@@ -1,6 +1,6 @@
 # =============================================================================
 # Production — Revolut LinkedIn Agent (API + MongoDB)
-# Déployé sur le VPS dans : ~/kobe-corporation/revolut-agent/
+# Déployé sur le VPS dans : ~/kobe-corporation/revolut-agent/api/
 #
 # nginx (hôte) :
 #   agent-rev-api.kobecorporation.com  → http://127.0.0.1:4005

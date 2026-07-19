@@ -12,7 +12,7 @@
 # Branches cibles (prévues) : main | master | develop
 # Push images + deploy VPS : main/master ou tags v*.*.* (pas PR, pas develop)
 #
-# VPS : ~/kobe-corporation/revolut-agent/
+# VPS : ~/kobe-corporation/revolut-agent/api/
 #   - .env (manuel, depuis setup/.env.prod.example)
 #   - compose.prod.yaml (scp CI)
 # nginx API : agent-rev-api.kobecorporation.com → 127.0.0.1:4005
@@ -492,7 +492,7 @@ jobs:
           username: ${{ secrets.VPS_USERNAME }}
           key: ${{ secrets.VPS_SSH_KEY }}
           source: setup/compose.prod.yaml
-          target: ${{ secrets.VPS_DEPLOY_DIR || '~/kobe-corporation/revolut-agent' }}/
+          target: ${{ secrets.VPS_DEPLOY_DIR || '~/kobe-corporation/revolut-agent/api' }}/
           strip_components: 1
           overwrite: true
 
@@ -509,7 +509,7 @@ jobs:
           script: |
             set -eu
 
-            DEPLOY_DIR="${DEPLOY_DIR:-$HOME/kobe-corporation/revolut-agent}"
+            DEPLOY_DIR="${DEPLOY_DIR:-$HOME/kobe-corporation/revolut-agent/api}"
             mkdir -p "$DEPLOY_DIR"
             cd "$DEPLOY_DIR"
 
@@ -559,7 +559,7 @@ jobs:
             echo "### Déploiement revolut-agent"
             echo "- API: \`${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_API }}:${{ needs.tag.outputs.docker_tag }}\`"
             echo "- Digest: \`${{ needs.docker-push.outputs.digest_api }}\`"
-            echo "- Répertoire VPS: \`${{ secrets.VPS_DEPLOY_DIR || '~/kobe-corporation/revolut-agent' }}\`"
+            echo "- Répertoire VPS: \`${{ secrets.VPS_DEPLOY_DIR || '~/kobe-corporation/revolut-agent/api' }}\`"
             echo "- API publique: https://agent-rev-api.kobecorporation.com"
             echo "- Port local nginx: \`127.0.0.1:4005\`"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -590,7 +590,7 @@ jobs:
           envs: DEPLOY_DIR,API_PORT
           script: |
             set -eu
-            DEPLOY_DIR="${DEPLOY_DIR:-$HOME/kobe-corporation/revolut-agent}"
+            DEPLOY_DIR="${DEPLOY_DIR:-$HOME/kobe-corporation/revolut-agent/api}"
             API_PORT="${API_PORT:-4005}"
             cd "$DEPLOY_DIR"
 

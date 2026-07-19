@@ -503,16 +503,17 @@ Les anciens modèles `gemini-2.x` indisponibles sont remappés automatiquement.
 | **Auth** | Bearer |
 | **Succès** | `200` |
 
-Body = **sous-ensemble** de champs. Omis = **conserver**. Création lazy si aucune ligne settings.
+Body = **sous-ensemble** de champs (`PatchOrganizationSettingsRequest` — DTO concret, **pas** `JsonNode`).  
+`null` / omis = **conserver**. Création lazy si aucune ligne settings.
 
 | Présence | Effet |
 |----------|--------|
-| Champ omis | Conserver |
-| Texte optionnel `null` / `""` | Vider |
+| Champ omis / `null` | Conserver |
+| Texte optionnel `""` | Vider |
 | Clé API `null` / `""` / omis | Conserver le secret chiffré |
 | Clé API non vide | Remplacer |
-| `companyName` / `contentTopic` **présents** | trim ; vide → `400` |
-| `companyName` / `contentTopic` **absents** | ne pas toucher / **pas requis** |
+| `companyName` / `contentTopic` **non-null** | trim ; vide → `400` |
+| `companyName` / `contentTopic` **omis** | ne pas toucher / **pas requis** |
 
 ```http
 PATCH /api/settings

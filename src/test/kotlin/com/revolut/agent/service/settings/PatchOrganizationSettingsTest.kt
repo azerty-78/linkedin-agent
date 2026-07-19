@@ -1,9 +1,9 @@
 package com.revolut.agent.service.settings
 
-import com.fasterxml.jackson.databind.ObjectMapper
 import com.revolut.agent.config.EncryptionProperties
 import com.revolut.agent.config.LinkedInProperties
 import com.revolut.agent.dto.linkedin.LinkedInAppListResponse
+import com.revolut.agent.dto.settings.PatchOrganizationSettingsRequest
 import com.revolut.agent.model.settings.OrganizationSettings
 import com.revolut.agent.repository.linkedin.LinkedInConnectionRepository
 import com.revolut.agent.repository.settings.OrganizationSettingsRepository
@@ -22,7 +22,7 @@ import java.util.Base64
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * PATCH partiel : clé IA seule / companyName seul sans exiger le reste.
+ * PATCH partiel via DTO concret (pas JsonNode).
  */
 class PatchOrganizationSettingsTest {
 
@@ -32,7 +32,6 @@ class PatchOrganizationSettingsTest {
 	private lateinit var encryptionService: EncryptionService
 	private lateinit var service: OrganizationSettingsService
 	private val stored = AtomicReference<OrganizationSettings>()
-	private val mapper = ObjectMapper()
 
 	@BeforeEach
 	fun setUp() {
@@ -76,9 +75,12 @@ class PatchOrganizationSettingsTest {
 
 	@Test
 	fun `PATCH geminiApiKey alone succeeds without companyName`() {
-		val body = mapper.readTree("""{"geminiApiKey":"AIza-test-key-zzzz","geminiModel":"gemini-2.0-flash"}""")
+		val request = PatchOrganizationSettingsRequest(
+			geminiApiKey = "AIza-test-key-zzzz",
+			geminiModel = "gemini-2.0-flash",
+		)
 
-		StepVerifier.create(service.patchSettings(body, "admin@test.com"))
+		StepVerifier.create(service.patchSettings(request, "admin@test.com"))
 			.assertNext { response ->
 				assertEquals("****zzzz", response.geminiKeyMasked)
 				assertTrue(response.geminiModel.contains("gemini"))
@@ -91,9 +93,9 @@ class PatchOrganizationSettingsTest {
 
 	@Test
 	fun `PATCH companyName alone succeeds without contentTopic`() {
-		val body = mapper.readTree("""{"companyName":"Revlut"}""")
+		val request = PatchOrganizationSettingsRequest(companyName = "Revlut")
 
-		StepVerifier.create(service.patchSettings(body, "admin@test.com"))
+		StepVerifier.create(service.patchSettings(request, "admin@test.com"))
 			.assertNext { response ->
 				assertEquals("Revlut", response.companyName)
 				assertEquals("", response.contentTopic)
@@ -112,9 +114,9 @@ class PatchOrganizationSettingsTest {
 			),
 		)
 
-		val body = mapper.readTree("""{"schedulerEnabled":true}""")
+		val request = PatchOrganizationSettingsRequest(schedulerEnabled = true)
 
-		StepVerifier.create(service.patchSettings(body, "admin@test.com"))
+		StepVerifier.create(service.patchSettings(request, "admin@test.com"))
 			.assertNext {
 				assertEquals("KOBE", it.companyName)
 				assertEquals("tips", it.contentTopic)
@@ -126,10 +128,26 @@ class PatchOrganizationSettingsTest {
 
 	@Test
 	fun `PATCH blank companyName when present returns 400`() {
-		val body = mapper.readTree("""{"companyName":"   "}""")
+		val request = PatchOrganizationSettingsRequest(companyName = "   ")
 
-		StepVerifier.create(service.patchSettings(body, "admin@test.com"))
+		StepVerifier.create(service.patchSettings(request, "admin@test.com"))
 			.expectErrorMatches { it is IllegalArgumentException && it.message!!.contains("companyName") }
 			.verify()
+	}
+
+	@Test
+	fun `PATCH blank geminiApiKey keeps existing secret`() {
+		stored.set(
+			OrganizationSettings(
+				id = "settings-1",
+				encryptedGeminiKey = encryptionService.encrypt("keep-me-zzzz"),
+			),
+		)
+
+		val request = PatchOrganizationSettingsRequest(geminiApiKey = "   ")
+
+		StepVerifier.create(service.patchSettings(request, "admin@test.com"))
+			.assertNext { assertEquals("****zzzz", it.geminiKeyMasked) }
+			.verifyComplete()
 	}
 }

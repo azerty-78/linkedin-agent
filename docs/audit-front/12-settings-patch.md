@@ -8,14 +8,19 @@
 
 ## Checklist
 
-- [x] `PATCH /api/settings` (merge partiel, JWT)
-- [x] Champs omis = no-op (`JsonNode.has`)
-- [x] Clés API null/vide/omis = conserver
-- [x] `companyName` / `contentTopic` requis **seulement** s’ils sont dans le body
+- [x] `PATCH /api/settings` (JWT) — DTO concret `PatchOrganizationSettingsRequest` (**pas** `JsonNode`)
+- [x] Champs null/omis = no-op
+- [x] Clés API null/vide = conserver
+- [x] `companyName` / `contentTopic` requis **seulement** si non-null
 - [x] Création lazy (`findOrCreateSettings`)
 - [x] Réponse = settings complets + masques
 - [x] Smoke unitaire : clé Gemini seule → OK
 - [x] Smoke unitaire : `companyName` seul → OK
+
+## Fix 500 Jackson 3
+
+`@RequestBody JsonNode` → `CodecException` sous WebFlux/Jackson 3.  
+Remplacé par DTO Kotlin avec `@JsonIgnoreProperties(ignoreUnknown = true)`.
 
 ## Comment tester
 

@@ -70,14 +70,18 @@ data class LinkedInAppAuditExportResponse(
 
 data class LinkedInAppHealthCheck(
 	val code: String,
+	/** `ok` | `warn` | `fail` — minuscules (contrat front). */
 	val status: String,
 	val message: String,
 )
 
 data class LinkedInAppHealthResponse(
 	val ok: Boolean,
-	val tokenExpiringSoon: Boolean = false,
+	val activeAppId: String? = null,
+	val activeAppLabel: String? = null,
 	val checks: List<LinkedInAppHealthCheck>,
+	val tokenExpiresAt: Instant? = null,
+	val tokenExpiringSoon: Boolean = false,
 )
 
 data class LinkedInAppVerifyResponse(

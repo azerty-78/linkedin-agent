@@ -6,6 +6,9 @@ import com.revolut.agent.dto.linkedin.CreateLinkedInAppRequest
 import com.revolut.agent.exception.linkedin.LinkedInAppLimitException
 import com.revolut.agent.model.linkedin.LinkedInApp
 import com.revolut.agent.model.linkedin.LinkedInAppAuditEvent
+import com.revolut.agent.model.linkedin.LinkedInConnection
+import com.revolut.agent.model.linkedin.LinkedInConnectionStatus
+import com.revolut.agent.model.settings.OrganizationSettings
 import com.revolut.agent.repository.linkedin.LinkedInAppAuditRepository
 import com.revolut.agent.repository.linkedin.LinkedInAppRepository
 import com.revolut.agent.repository.linkedin.LinkedInConnectionRepository
@@ -13,6 +16,7 @@ import com.revolut.agent.repository.settings.OrganizationSettingsRepository
 import com.revolut.agent.service.settings.EncryptionService
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -24,6 +28,8 @@ import org.springframework.core.env.StandardEnvironment
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
 import reactor.test.StepVerifier
+import java.time.Instant
+import java.time.temporal.ChronoUnit
 import java.util.Base64
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
@@ -92,6 +98,7 @@ class LinkedInAppServiceTest {
 			Mono.just(withId)
 		}
 		`when`(settingsRepository.findFirstByOrderByUpdatedAtDesc()).thenReturn(Mono.empty())
+		`when`(connectionRepository.findById(anyString())).thenReturn(Mono.empty())
 
 		service = LinkedInAppService(
 			linkedInAppRepository = appRepository,
@@ -176,5 +183,104 @@ class LinkedInAppServiceTest {
 
 		assertTrue(audits.none { it.summary.contains("super-secret") })
 		assertTrue(audits.none { it.summary.contains("zzzz") })
+	}
+
+	@Test
+	fun `health without active app fails ACTIVE_APP and TOKEN_VALID`() {
+		StepVerifier.create(service.health())
+			.assertNext { health ->
+				assertFalse(health.ok)
+				assertNull(health.activeAppId)
+				assertEquals(
+					listOf("ACTIVE_APP", "CREDENTIALS_PRESENT", "CLIENT_ID_FORMAT", "TOKEN_VALID", "PAGE_URN_SET"),
+					health.checks.map { it.code },
+				)
+				assertTrue(health.checks.all { it.status == "fail" })
+			}
+			.verifyComplete()
+	}
+
+	@Test
+	fun `health with app but no OAuth account fails TOKEN_VALID and PAGE_URN_SET`() {
+		service.createApp(
+			CreateLinkedInAppRequest(label = "Test_rev-agent2", clientId = "clientid01", clientSecret = "secret-zzzz"),
+			"a@b.c",
+		).block()
+
+		StepVerifier.create(service.health())
+			.assertNext { health ->
+				assertFalse(health.ok)
+				assertEquals("Test_rev-agent2", health.activeAppLabel)
+				assertEquals("ok", health.checks.first { it.code == "ACTIVE_APP" }.status)
+				assertEquals("ok", health.checks.first { it.code == "CREDENTIALS_PRESENT" }.status)
+				assertEquals("ok", health.checks.first { it.code == "CLIENT_ID_FORMAT" }.status)
+				assertEquals("fail", health.checks.first { it.code == "TOKEN_VALID" }.status)
+				assertEquals("fail", health.checks.first { it.code == "PAGE_URN_SET" }.status)
+			}
+			.verifyComplete()
+	}
+
+	@Test
+	fun `health with connected account and URN is ok`() {
+		val created = service.createApp(
+			CreateLinkedInAppRequest(label = "Prod", clientId = "clientid01", clientSecret = "secret-zzzz"),
+			"a@b.c",
+		).block()!!
+
+		val account = LinkedInConnection(
+			id = "acc-1",
+			status = LinkedInConnectionStatus.CONNECTED,
+			encryptedAccessToken = encryptionService.encrypt("token"),
+			accessTokenExpiresAt = Instant.now().plus(30, ChronoUnit.DAYS),
+			linkedInOrganizationUrn = "urn:li:organization:123",
+		)
+		`when`(settingsRepository.findFirstByOrderByUpdatedAtDesc()).thenReturn(
+			Mono.just(OrganizationSettings(activeLinkedInAccountId = "acc-1")),
+		)
+		`when`(connectionRepository.findById("acc-1")).thenReturn(Mono.just(account))
+
+		StepVerifier.create(service.health())
+			.assertNext { health ->
+				assertTrue(health.ok)
+				assertEquals(created.activeAppId, health.activeAppId)
+				assertEquals("ok", health.checks.first { it.code == "TOKEN_VALID" }.status)
+				assertEquals("ok", health.checks.first { it.code == "PAGE_URN_SET" }.status)
+				assertFalse(health.tokenExpiringSoon)
+				assertEquals(account.accessTokenExpiresAt, health.tokenExpiresAt)
+			}
+			.verifyComplete()
+	}
+
+	@Test
+	fun `verify returns ok for decryptable credentials`() {
+		val list = service.createApp(
+			CreateLinkedInAppRequest(clientId = "clientid01", clientSecret = "secret-zzzz"),
+			"a@b.c",
+		).block()!!
+		val id = list.apps.first().id
+
+		StepVerifier.create(service.verifyApp(id))
+			.assertNext { res ->
+				assertTrue(res.ok)
+				assertEquals(id, res.appId)
+				assertTrue(res.message.contains("format OK", ignoreCase = true))
+			}
+			.verifyComplete()
+	}
+
+	@Test
+	fun `verify without secret returns IllegalStateException`() {
+		val app = LinkedInApp(
+			id = "app-bare",
+			label = "Bare",
+			clientId = "clientid01",
+			encryptedClientSecret = null,
+			isActive = true,
+		)
+		apps.add(app)
+
+		StepVerifier.create(service.verifyApp("app-bare"))
+			.expectErrorMatches { it is IllegalStateException && it.message!!.contains("secret", ignoreCase = true) }
+			.verify()
 	}
 }

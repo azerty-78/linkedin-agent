@@ -56,11 +56,12 @@ class LinkedInCallbackController(
 
 	private fun redirect(connected: Boolean, error: String?): ResponseEntity<Void> {
 		val base = appFrontendProperties.frontendUrl.trimEnd('/')
+		// Locale gérée côté Next (middleware) ; query alignée front (`connected=1`).
 		val target = if (connected) {
-			"$base/dashboard/linkedin?connected=true"
+			"$base/dashboard/linkedin?connected=1"
 		} else {
 			val encoded = URLEncoder.encode(error ?: "unknown", StandardCharsets.UTF_8)
-			"$base/dashboard/linkedin?connected=false&error=$encoded"
+			"$base/dashboard/linkedin?connected=0&error=$encoded"
 		}
 		return ResponseEntity.status(HttpStatus.FOUND)
 			.location(URI.create(target))

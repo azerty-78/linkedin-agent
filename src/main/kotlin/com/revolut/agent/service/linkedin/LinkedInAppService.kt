@@ -16,6 +16,7 @@ import com.revolut.agent.exception.linkedin.LinkedInAppLimitException
 import com.revolut.agent.model.linkedin.LinkedInApp
 import com.revolut.agent.model.linkedin.LinkedInAppAuditAction
 import com.revolut.agent.model.linkedin.LinkedInAppAuditEvent
+import com.revolut.agent.model.linkedin.LinkedInConnection
 import com.revolut.agent.model.linkedin.LinkedInConnectionStatus
 import com.revolut.agent.repository.linkedin.LinkedInAppAuditRepository
 import com.revolut.agent.repository.linkedin.LinkedInAppRepository
@@ -295,127 +296,239 @@ class LinkedInAppService(
 			.collectList()
 			.map { LinkedInAppAuditExportResponse(events = it) }
 
+	/**
+	 * Diagnostic app active + token OAuth + Page URN.
+	 * N’obtient **pas** de token — pour ça : `POST /api/linkedin/accounts/connect`.
+	 * Status checks : `ok` | `warn` | `fail` (minuscules, contrat front).
+	 */
 	fun health(
 		organizationId: String = LinkedInApp.DEFAULT_ORGANIZATION_ID,
 	): Mono<LinkedInAppHealthResponse> =
-		listApps(organizationId)
+		linkedInAppRepository.findByOrganizationIdAndIsActiveTrue(organizationId)
+			.map { OptionalApp(it) }
+			.defaultIfEmpty(OptionalApp(null))
 			.zipWith(
 				organizationSettingsRepository.findFirstByOrderByUpdatedAtDesc()
-					.map { settings -> settings.activeLinkedInAccountId.orEmpty() }
+					.map { it.activeLinkedInAccountId.orEmpty() }
 					.defaultIfEmpty(""),
 			)
 			.flatMap { tuple ->
-				val apps = tuple.t1
+				val activeApp = tuple.t1.app
 				val accountId = tuple.t2.takeIf { it.isNotBlank() }
-				val active = apps.apps.firstOrNull { it.isActive }
-				val checks = mutableListOf<LinkedInAppHealthCheck>()
-
-				when {
-					active == null ->
-						checks += LinkedInAppHealthCheck("CREDENTIALS_PRESENT", "FAIL", "Aucune application active")
-					active.clientSecretMasked.isBlank() ->
-						checks += LinkedInAppHealthCheck("CREDENTIALS_PRESENT", "FAIL", "Secret manquant sur l’app active")
-					else ->
-						checks += LinkedInAppHealthCheck(
-							"CREDENTIALS_PRESENT",
-							"OK",
-							"App active « ${active.label} » avec secret",
-						)
-				}
-
-				val accountLookup: Mono<LinkedInAppHealthResponse> =
-					if (accountId == null) {
-						Mono.just(
-							LinkedInAppHealthResponse(
-								ok = checks.none { it.status == "FAIL" },
-								tokenExpiringSoon = false,
-								checks = checks + LinkedInAppHealthCheck(
-									"TOKEN_VALID",
-									"WARN",
-									"Aucun compte LinkedIn actif",
-								),
-							),
-						)
-					} else {
-						linkedInConnectionRepository.findById(accountId)
-							.map { account ->
-								var tokenExpiringSoon = false
-								when {
-									account.status != LinkedInConnectionStatus.CONNECTED ->
-										checks += LinkedInAppHealthCheck(
-											"TOKEN_VALID",
-											"FAIL",
-											"Compte actif non CONNECTED (${account.status})",
-										)
-									else -> {
-										val expires = account.accessTokenExpiresAt
-										when {
-											expires == null ->
-												checks += LinkedInAppHealthCheck(
-													"TOKEN_VALID",
-													"WARN",
-													"Expiration token inconnue",
-												)
-											expires.isBefore(Instant.now()) ->
-												checks += LinkedInAppHealthCheck("TOKEN_VALID", "FAIL", "Token expiré")
-											Duration.between(Instant.now(), expires).toDays() <= 7 -> {
-												tokenExpiringSoon = true
-												checks += LinkedInAppHealthCheck(
-													"TOKEN_VALID",
-													"WARN",
-													"Token expire bientôt",
-												)
-											}
-											else ->
-												checks += LinkedInAppHealthCheck("TOKEN_VALID", "OK", "Token valide")
-										}
-										if (account.linkedInOrganizationUrn.isNullOrBlank()) {
-											checks += LinkedInAppHealthCheck("PAGE_URN_SET", "FAIL", "URN Page manquant")
-										} else {
-											checks += LinkedInAppHealthCheck("PAGE_URN_SET", "OK", "URN Page configuré")
-										}
-									}
-								}
-								LinkedInAppHealthResponse(
-									ok = checks.none { it.status == "FAIL" },
-									tokenExpiringSoon = tokenExpiringSoon,
-									checks = checks.toList(),
-								)
-							}
-							.defaultIfEmpty(
-								LinkedInAppHealthResponse(
-									ok = checks.none { it.status == "FAIL" },
-									tokenExpiringSoon = false,
-									checks = checks + LinkedInAppHealthCheck(
-										"TOKEN_VALID",
-										"WARN",
-										"Compte LinkedIn actif introuvable",
-									),
-								),
-							)
-					}
-
-				accountLookup
+				buildHealthChecks(activeApp, accountId)
 			}
 
+	private fun buildHealthChecks(
+		activeApp: LinkedInApp?,
+		accountId: String?,
+	): Mono<LinkedInAppHealthResponse> {
+		val checks = mutableListOf<LinkedInAppHealthCheck>()
+
+		if (activeApp == null) {
+			checks += LinkedInAppHealthCheck("ACTIVE_APP", STATUS_FAIL, "Aucune application active")
+			checks += LinkedInAppHealthCheck("CREDENTIALS_PRESENT", STATUS_FAIL, "Client ID et Secret absents")
+			checks += LinkedInAppHealthCheck("CLIENT_ID_FORMAT", STATUS_FAIL, "Pas de Client ID à valider")
+			checks += LinkedInAppHealthCheck(
+				"TOKEN_VALID",
+				STATUS_FAIL,
+				"Aucun token OAuth — connectez une Page",
+			)
+			checks += LinkedInAppHealthCheck(
+				"PAGE_URN_SET",
+				STATUS_FAIL,
+				"Aucun compte LinkedIn / Page liée",
+			)
+			return Mono.just(
+				LinkedInAppHealthResponse(
+					ok = false,
+					activeAppId = null,
+					activeAppLabel = null,
+					checks = checks,
+					tokenExpiresAt = null,
+					tokenExpiringSoon = false,
+				),
+			)
+		}
+
+		checks += LinkedInAppHealthCheck(
+			"ACTIVE_APP",
+			STATUS_OK,
+			"App active « ${activeApp.label} »",
+		)
+
+		val secretPresent = !activeApp.encryptedClientSecret.isNullOrBlank()
+		val secretReadable = secretPresent &&
+			encryptionService.tryDecrypt(activeApp.encryptedClientSecret!!) != null
+		checks += when {
+			!secretPresent ->
+				LinkedInAppHealthCheck("CREDENTIALS_PRESENT", STATUS_FAIL, "Secret manquant")
+			!secretReadable ->
+				LinkedInAppHealthCheck(
+					"CREDENTIALS_PRESENT",
+					STATUS_FAIL,
+					"Secret illisible (ENCRYPTION_KEY ?)",
+				)
+			activeApp.clientId.isBlank() ->
+				LinkedInAppHealthCheck("CREDENTIALS_PRESENT", STATUS_FAIL, "Client ID manquant")
+			else ->
+				LinkedInAppHealthCheck(
+					"CREDENTIALS_PRESENT",
+					STATUS_OK,
+					"Client ID et Secret présents",
+				)
+		}
+
+		val clientId = activeApp.clientId.trim()
+		checks += when {
+			CLIENT_ID_REGEX.matches(clientId) ->
+				LinkedInAppHealthCheck("CLIENT_ID_FORMAT", STATUS_OK, "Format Client ID valide")
+			clientId.isBlank() ->
+				LinkedInAppHealthCheck("CLIENT_ID_FORMAT", STATUS_FAIL, "Client ID vide")
+			else ->
+				LinkedInAppHealthCheck("CLIENT_ID_FORMAT", STATUS_WARN, "Format Client ID douteux")
+		}
+
+		val accountMono: Mono<OptionalConn> =
+			if (accountId == null) {
+				Mono.just(OptionalConn(null))
+			} else {
+				linkedInConnectionRepository.findById(accountId)
+					.map { OptionalConn(it) }
+					.defaultIfEmpty(OptionalConn(null))
+			}
+
+		return accountMono.map { wrapped ->
+			val account = wrapped.connection
+			var tokenExpiresAt: Instant? = null
+			var tokenExpiringSoon = false
+
+			when {
+				account == null -> {
+					checks += LinkedInAppHealthCheck(
+						"TOKEN_VALID",
+						STATUS_FAIL,
+						"Aucun token OAuth — connectez une Page",
+					)
+					checks += LinkedInAppHealthCheck(
+						"PAGE_URN_SET",
+						STATUS_FAIL,
+						"Aucun compte LinkedIn / Page liée",
+					)
+				}
+				account.status != LinkedInConnectionStatus.CONNECTED ||
+					account.encryptedAccessToken.isNullOrBlank() -> {
+					checks += LinkedInAppHealthCheck(
+						"TOKEN_VALID",
+						STATUS_FAIL,
+						"Aucun token OAuth — reconnectez le compte",
+					)
+					checks += pageUrnCheck(account.linkedInOrganizationUrn)
+				}
+				else -> {
+					tokenExpiresAt = account.accessTokenExpiresAt
+					when {
+						tokenExpiresAt == null ->
+							checks += LinkedInAppHealthCheck(
+								"TOKEN_VALID",
+								STATUS_WARN,
+								"Token présent — expiration inconnue",
+							)
+						tokenExpiresAt.isBefore(Instant.now()) ->
+							checks += LinkedInAppHealthCheck(
+								"TOKEN_VALID",
+								STATUS_FAIL,
+								"Token OAuth expiré — reconnectez le compte",
+							)
+						Duration.between(Instant.now(), tokenExpiresAt).toDays() <= 7 -> {
+							tokenExpiringSoon = true
+							checks += LinkedInAppHealthCheck(
+								"TOKEN_VALID",
+								STATUS_WARN,
+								"Token OAuth expire dans moins de 7 jours",
+							)
+						}
+						else ->
+							checks += LinkedInAppHealthCheck(
+								"TOKEN_VALID",
+								STATUS_OK,
+								"Token OAuth valide",
+							)
+					}
+					checks += pageUrnCheck(account.linkedInOrganizationUrn)
+				}
+			}
+
+			LinkedInAppHealthResponse(
+				ok = checks.none { it.status == STATUS_FAIL },
+				activeAppId = activeApp.id,
+				activeAppLabel = activeApp.label,
+				checks = checks.toList(),
+				tokenExpiresAt = tokenExpiresAt,
+				tokenExpiringSoon = tokenExpiringSoon,
+			)
+		}
+	}
+
+	private fun pageUrnCheck(urn: String?): LinkedInAppHealthCheck =
+		if (urn.isNullOrBlank()) {
+			LinkedInAppHealthCheck(
+				"PAGE_URN_SET",
+				STATUS_FAIL,
+				"Aucun compte LinkedIn / Page liée",
+			)
+		} else {
+			LinkedInAppHealthCheck("PAGE_URN_SET", STATUS_OK, "URN Page configuré")
+		}
+
+	/**
+	 * Soft-check Client ID + Secret (déchiffrable + format) — **pas** un login OAuth.
+	 * `422` si secret manquant ; `404` si app hors scope.
+	 */
 	fun verifyApp(
 		appId: String,
 		organizationId: String = LinkedInApp.DEFAULT_ORGANIZATION_ID,
 	): Mono<LinkedInAppVerifyResponse> =
 		findOwned(appId, organizationId)
-			.map { app ->
-				val secretOk = !app.encryptedClientSecret.isNullOrBlank() &&
-					encryptionService.tryDecrypt(app.encryptedClientSecret!!) != null
-				LinkedInAppVerifyResponse(
-					ok = secretOk && app.clientId.isNotBlank(),
-					appId = requireNotNull(app.id),
-					message = when {
-						app.clientId.isBlank() -> "Client ID manquant"
-						app.encryptedClientSecret.isNullOrBlank() -> "Secret manquant"
-						!secretOk -> "Secret illisible (ENCRYPTION_KEY ?)"
-						else -> "Credentials présents et déchiffrables"
-					},
-				)
+			.flatMap { app ->
+				val id = requireNotNull(app.id)
+				if (app.encryptedClientSecret.isNullOrBlank()) {
+					return@flatMap Mono.error(
+						IllegalStateException("LinkedIn app secret missing — impossible de vérifier"),
+					)
+				}
+				val secret = encryptionService.tryDecrypt(app.encryptedClientSecret!!)
+				if (secret == null) {
+					return@flatMap Mono.just(
+						LinkedInAppVerifyResponse(
+							ok = false,
+							appId = id,
+							message = "Secret illisible (ENCRYPTION_KEY ?) — resaisissez le secret",
+						),
+					)
+				}
+				val clientId = app.clientId.trim()
+				when {
+					clientId.isBlank() ->
+						Mono.just(
+							LinkedInAppVerifyResponse(ok = false, appId = id, message = "Client ID manquant"),
+						)
+					!CLIENT_ID_REGEX.matches(clientId) ->
+						Mono.just(
+							LinkedInAppVerifyResponse(
+								ok = false,
+								appId = id,
+								message = "Client ID invalide (format attendu : 8–64 alphanumériques)",
+							),
+						)
+					else ->
+						Mono.just(
+							LinkedInAppVerifyResponse(
+								ok = true,
+								appId = id,
+								message = "Credentials acceptés / format OK",
+							),
+						)
+				}
 			}
 
 	/**
@@ -549,4 +662,14 @@ class LinkedInAppService(
 			actorEmail = event.actorEmail,
 			createdAt = event.createdAt,
 		)
+
+	private data class OptionalApp(val app: LinkedInApp?)
+	private data class OptionalConn(val connection: LinkedInConnection?)
+
+	companion object {
+		private const val STATUS_OK = "ok"
+		private const val STATUS_WARN = "warn"
+		private const val STATUS_FAIL = "fail"
+		private val CLIENT_ID_REGEX = Regex("^[a-zA-Z0-9]{8,64}$")
+	}
 }

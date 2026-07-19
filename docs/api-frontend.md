@@ -642,8 +642,38 @@ Auth Bearer sauf `/api/linkedin/callback` (public).
 | `DELETE` | `/api/linkedin/apps/{id}` | `204` | Active supprimée → auto-active la plus récente |
 | `GET` | `/api/linkedin/apps/audit?page&size` | `200` | Historique (sans secrets) |
 | `GET` | `/api/linkedin/apps/audit/export` | `200` | `{ events: [...] }` |
-| `GET` | `/api/linkedin/apps/health` | `200` | Checks credentials / token / URN |
-| `POST` | `/api/linkedin/apps/{id}/verify` | `200` | Credentials déchiffrables ? |
+| `GET` | `/api/linkedin/apps/health` | `200` | Diagnostic app active + token + URN Page (pas d’OAuth) |
+| `POST` | `/api/linkedin/apps/{id}/verify` | `200` / `422` | Soft-check Client ID + Secret ; `404` hors scope ; `422` secret manquant |
+
+**Health** — réponse :
+
+```json
+{
+  "ok": false,
+  "activeAppId": "…",
+  "activeAppLabel": "Test_rev-agent2",
+  "checks": [
+    { "code": "ACTIVE_APP", "status": "ok", "message": "…" },
+    { "code": "CREDENTIALS_PRESENT", "status": "ok", "message": "…" },
+    { "code": "CLIENT_ID_FORMAT", "status": "ok", "message": "…" },
+    { "code": "TOKEN_VALID", "status": "fail", "message": "Aucun token OAuth — connectez une Page" },
+    { "code": "PAGE_URN_SET", "status": "fail", "message": "…" }
+  ],
+  "tokenExpiresAt": null,
+  "tokenExpiringSoon": false
+}
+```
+
+| `code` | Signification |
+|--------|----------------|
+| `ACTIVE_APP` | Une app `isActive` |
+| `CREDENTIALS_PRESENT` | Client ID + secret déchiffrable |
+| `CLIENT_ID_FORMAT` | Regex `^[a-zA-Z0-9]{8,64}$` (`warn` si douteux) |
+| `TOKEN_VALID` | Token OAuth compte actif non expiré (`warn` si &lt; 7 j) |
+| `PAGE_URN_SET` | `organizationUrn` sur le compte actif |
+
+`ok` global = aucun check `fail` (`warn` OK). Status en **minuscules**.  
+**Rechecker ≠ obtenir un token** — pour le token : `POST /api/linkedin/accounts/connect`.
 
 **Create** : `{ "label": "Prod", "clientId": "78xxxxxxxxxxxx", "clientSecret": "…" }` — `clientId` regex `^[a-zA-Z0-9]{8,64}$`.
 
@@ -651,7 +681,18 @@ Migration boot : settings legacy → app « Default » active si 0 apps.
 
 ### 8.1 Comptes Pages (OAuth)
 
-Inchangé : `/api/linkedin/accounts*` (max 3). Les champs `linkedInClientId` / masked reflètent l'**app active**.
+| Méthode | Route | Rôle |
+|---------|-------|------|
+| `POST` | `/api/linkedin/accounts/connect` | App active → `authorizationUrl` + `accountId` |
+| `GET` | `/api/linkedin/callback` | Public — échange code → token chiffré → redirect front `?connected=1` |
+| `GET` | `/api/linkedin/accounts` | Liste comptes |
+| `PUT` | `/api/linkedin/accounts/{id}/activate` | Compte actif (publish) |
+| `GET` | `/api/linkedin/accounts/{id}/auth-url` | Reconnect token |
+| `GET` | `/api/linkedin/status` | Legacy 1 compte |
+
+Les champs settings `linkedInClientId` / masked (lecture) reflètent l'**app active**.
+
+Après OAuth réussi + URN Page, `GET …/apps/health` passe `TOKEN_VALID` + `PAGE_URN_SET` en `ok`.
 
 ### 8.2 Summary
 
@@ -661,11 +702,12 @@ OAuth / publish-test utilisent l'**app active** (`getActiveCredentials`).
 
 ### 8.3 Checklist frontend
 
-- [ ] Tableau apps CRUD + activate + audit
-- [ ] Ne plus écrire Client ID/Secret via settings
-- [ ] `publishBlockers` dont `NO_ACTIVE_APP`
-- [ ] Comptes Pages inchangés
-- [ ] Aucun appel à `/callback`
+- [x] Tableau apps CRUD + activate + audit
+- [x] Ne plus écrire Client ID/Secret via settings
+- [x] `publishBlockers` dont `NO_ACTIVE_APP`
+- [x] Comptes Pages + Login OAuth
+- [x] Health / verify branchés
+- [x] Aucun appel browser direct à `/callback`
 
 ### 8.4 Scopes
 

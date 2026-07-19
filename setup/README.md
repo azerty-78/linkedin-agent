@@ -16,8 +16,9 @@
 #   Mongo démarre et doit être healthy avant l’API (depends_on condition).
 #
 #   Env obligatoires (.env VPS) : MONGODB_URI, JWT_SECRET, ENCRYPTION_KEY,
-#   ADMIN_EMAIL, ADMIN_PASSWORD, REVOLUT_AGENT_API_IMAGE
-#   Optionnels : ADMIN_USERNAME, MAIL_*, FRONTEND_URL, CORS_*, LINKEDIN_*, AI keys
+#   REVOLUT_AGENT_API_IMAGE
+#   Optionnels : MAIL_*, FRONTEND_URL, CORS_*, LINKEDIN_*, AI keys
+#   Admin seed : BootstrapProperties.kt (pas de ADMIN_* dans .env)
 # CI/CD :
 #   .github/workflows/cicd.yml — push/PR/tags + workflow_dispatch.
 #   develop (push) : stop après docker-build.

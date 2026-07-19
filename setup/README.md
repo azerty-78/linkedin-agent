@@ -19,9 +19,9 @@
 #   ADMIN_EMAIL, ADMIN_PASSWORD, REVOLUT_AGENT_API_IMAGE
 #   Optionnels : ADMIN_USERNAME, MAIL_*, FRONTEND_URL, CORS_*, LINKEDIN_*, AI keys
 # CI/CD :
-#   .github/workflows/cicd.yml — push/PR/tags + workflow_dispatch actifs.
-#   Push images + deploy VPS : ENABLE_CICD_DEPLOY=true (variable repo)
-#     + secrets Docker Hub / VPS.
+#   .github/workflows/cicd.yml — push/PR/tags + workflow_dispatch.
+#   develop (push) : stop après docker-build.
+#   main/master/PR/tags/dispatch : push image + sign + deploy VPS + smoke.
 #   Secrets : DOCKERHUB_USERNAME, DOCKERHUB_PASSWORD,
 #             VPS_HOST, VPS_USERNAME, VPS_SSH_KEY,
 #             VPS_DEPLOY_DIR (optionnel → ~/kobe-corporation/revolut-agent/api)

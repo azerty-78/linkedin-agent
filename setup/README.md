@@ -4,15 +4,20 @@
 # Local :
 #   docker compose -f compose.yml --env-file .env up -d
 #   → MongoDB seul sur localhost:27017
+#   Fichier : setup/.env (depuis .env.example) — profil Spring default
 #
 # Production (VPS) :
 #   Répertoire : ~/kobe-corporation/revolut-agent/api/
 #   Fichiers   : compose.prod.yaml + .env (depuis .env.prod.example)
+#   Spring     : SPRING_PROFILES_ACTIVE=prod → application-prod.properties
 #   Ports      : API 127.0.0.1:4005 → nginx agent-rev-api.kobecorporation.com
 #                Front (hors compose) 4004 → agent-rev-front.kobecorporation.com
 #
 #   Mongo démarre et doit être healthy avant l’API (depends_on condition).
 #
+#   Env obligatoires (.env VPS) : MONGODB_URI, JWT_SECRET, ENCRYPTION_KEY,
+#   ADMIN_EMAIL, ADMIN_PASSWORD, REVOLUT_AGENT_API_IMAGE
+#   Optionnels : ADMIN_USERNAME, MAIL_*, FRONTEND_URL, CORS_*, LINKEDIN_*, AI keys
 # CI/CD :
 #   .github/workflows/cicd.yml — pas de trigger push/PR (workflow_dispatch only).
 #   Push/deploy : variable repo ENABLE_CICD_DEPLOY=true + secrets ci-dessous.

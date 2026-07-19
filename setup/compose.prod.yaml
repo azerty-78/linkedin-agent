@@ -69,7 +69,7 @@ services:
       FRONTEND_URL: ${FRONTEND_URL:-https://agent-rev-front.kobecorporation.com}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-https://agent-rev-front.kobecorporation.com}
       LINKEDIN_REDIRECT_URI: ${LINKEDIN_REDIRECT_URI:-https://agent-rev-api.kobecorporation.com/api/linkedin/callback}
-      LINKEDIN_OAUTH_SCOPES: ${LINKEDIN_OAUTH_SCOPES:-w_organization_social r_organization_social}
+      LINKEDIN_OAUTH_SCOPES: ${LINKEDIN_OAUTH_SCOPES:-openid profile email w_member_social}
       LINKEDIN_API_VERSION: ${LINKEDIN_API_VERSION:-202604}
       MAIL_HOST: ${MAIL_HOST:-}
       MAIL_PORT: ${MAIL_PORT:-587}

@@ -83,7 +83,12 @@ data class PublicationReadinessResponse(
 	val ready: Boolean,
 	val linkedInConnected: Boolean,
 	val linkedInAccountLabel: String?,
-	val organizationUrn: String?,
+	/** Auteur profil perso (`urn:li:person:…`) — cible publish par défaut. */
+	val personUrn: String? = null,
+	/** Page org — optionnel (Community Management plus tard). */
+	val organizationUrn: String? = null,
+	/** `PERSON` | `ORGANIZATION` | null */
+	val publishTarget: String? = null,
 	val activeAppConfigured: Boolean,
 	val hasLlmKey: Boolean,
 	val reasons: List<String>,

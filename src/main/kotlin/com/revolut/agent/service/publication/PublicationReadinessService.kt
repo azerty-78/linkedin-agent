@@ -30,8 +30,13 @@ class PublicationReadinessService(
 
 				val active = summary.activeAccount
 				val linkedInConnected = active?.status == LinkedInConnectionStatus.CONNECTED
-				val orgUrn = active?.linkedInOrganizationUrn
-				val label = active?.let { it.organizationName ?: it.label }
+				val personUrn = active?.linkedInUserUrn?.trim()?.takeIf { it.isNotEmpty() }
+				val orgUrn = active?.linkedInOrganizationUrn?.trim()?.takeIf { it.isNotEmpty() }
+				val label = active?.let {
+					it.label.takeIf { l -> l.isNotBlank() }
+						?: it.organizationName
+						?: personUrn
+				}
 
 				when {
 					active == null ||
@@ -42,11 +47,14 @@ class PublicationReadinessService(
 						summary.publishBlockers.contains(LinkedInPublishBlockers.ERROR_STATUS) ->
 						reasons += ReadinessReasons.TOKEN_EXPIRED
 				}
+
+				// Profil perso suffit ; Page org n’est plus un hard fail
 				if (
-					summary.publishBlockers.contains(LinkedInPublishBlockers.MISSING_ORG_URN) ||
-					(linkedInConnected && orgUrn.isNullOrBlank())
+					linkedInConnected &&
+					personUrn.isNullOrBlank() &&
+					orgUrn.isNullOrBlank()
 				) {
-					reasons += ReadinessReasons.ORGANIZATION_URN_MISSING
+					reasons += ReadinessReasons.AUTHOR_URN_MISSING
 				}
 
 				val hasLlmKey = when (settings.activeLlmProvider) {
@@ -58,12 +66,20 @@ class PublicationReadinessService(
 					reasons += ReadinessReasons.NO_LLM_KEY
 				}
 
+				val publishTarget = when {
+					!personUrn.isNullOrBlank() -> "PERSON"
+					!orgUrn.isNullOrBlank() -> "ORGANIZATION"
+					else -> null
+				}
+
 				val distinctReasons = reasons.distinct()
 				PublicationReadinessResponse(
 					ready = distinctReasons.isEmpty(),
 					linkedInConnected = linkedInConnected,
 					linkedInAccountLabel = label?.takeIf { it.isNotBlank() },
+					personUrn = personUrn,
 					organizationUrn = orgUrn,
+					publishTarget = publishTarget,
 					activeAppConfigured = activeAppConfigured,
 					hasLlmKey = hasLlmKey,
 					reasons = distinctReasons,
@@ -73,7 +89,9 @@ class PublicationReadinessService(
 
 object ReadinessReasons {
 	const val LINKEDIN_NOT_CONNECTED = "LINKEDIN_NOT_CONNECTED"
+	/** Plus utilisé comme bloqueur si `personUrn` est présent (rétrocompat). */
 	const val ORGANIZATION_URN_MISSING = "ORGANIZATION_URN_MISSING"
+	const val AUTHOR_URN_MISSING = "AUTHOR_URN_MISSING"
 	const val NO_ACTIVE_APP = "NO_ACTIVE_APP"
 	const val NO_LLM_KEY = "NO_LLM_KEY"
 	const val TOKEN_EXPIRED = "TOKEN_EXPIRED"

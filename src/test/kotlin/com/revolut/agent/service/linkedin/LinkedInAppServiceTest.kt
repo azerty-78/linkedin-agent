@@ -186,22 +186,30 @@ class LinkedInAppServiceTest {
 	}
 
 	@Test
-	fun `health without active app fails ACTIVE_APP and TOKEN_VALID`() {
+	fun `health without active app fails ACTIVE_APP and AUTHOR_URN_SET`() {
 		StepVerifier.create(service.health())
 			.assertNext { health ->
 				assertFalse(health.ok)
 				assertNull(health.activeAppId)
 				assertEquals(
-					listOf("ACTIVE_APP", "CREDENTIALS_PRESENT", "CLIENT_ID_FORMAT", "TOKEN_VALID", "PAGE_URN_SET"),
+					listOf(
+						"ACTIVE_APP",
+						"CREDENTIALS_PRESENT",
+						"CLIENT_ID_FORMAT",
+						"TOKEN_VALID",
+						"AUTHOR_URN_SET",
+						"PAGE_URN_SET",
+					),
 					health.checks.map { it.code },
 				)
-				assertTrue(health.checks.all { it.status == "fail" })
+				assertEquals("fail", health.checks.first { it.code == "AUTHOR_URN_SET" }.status)
+				assertEquals("warn", health.checks.first { it.code == "PAGE_URN_SET" }.status)
 			}
 			.verifyComplete()
 	}
 
 	@Test
-	fun `health with app but no OAuth account fails TOKEN_VALID and PAGE_URN_SET`() {
+	fun `health with app but no OAuth account fails TOKEN_VALID and AUTHOR_URN_SET`() {
 		service.createApp(
 			CreateLinkedInAppRequest(label = "Test_rev-agent2", clientId = "clientid01", clientSecret = "secret-zzzz"),
 			"a@b.c",
@@ -215,13 +223,14 @@ class LinkedInAppServiceTest {
 				assertEquals("ok", health.checks.first { it.code == "CREDENTIALS_PRESENT" }.status)
 				assertEquals("ok", health.checks.first { it.code == "CLIENT_ID_FORMAT" }.status)
 				assertEquals("fail", health.checks.first { it.code == "TOKEN_VALID" }.status)
-				assertEquals("fail", health.checks.first { it.code == "PAGE_URN_SET" }.status)
+				assertEquals("fail", health.checks.first { it.code == "AUTHOR_URN_SET" }.status)
+				assertEquals("warn", health.checks.first { it.code == "PAGE_URN_SET" }.status)
 			}
 			.verifyComplete()
 	}
 
 	@Test
-	fun `health with connected account and URN is ok`() {
+	fun `health with connected person URN is ok without page`() {
 		val created = service.createApp(
 			CreateLinkedInAppRequest(label = "Prod", clientId = "clientid01", clientSecret = "secret-zzzz"),
 			"a@b.c",
@@ -232,7 +241,8 @@ class LinkedInAppServiceTest {
 			status = LinkedInConnectionStatus.CONNECTED,
 			encryptedAccessToken = encryptionService.encrypt("token"),
 			accessTokenExpiresAt = Instant.now().plus(30, ChronoUnit.DAYS),
-			linkedInOrganizationUrn = "urn:li:organization:123",
+			linkedInUserUrn = "urn:li:person:abc123",
+			linkedInOrganizationUrn = null,
 		)
 		`when`(settingsRepository.findFirstByOrderByUpdatedAtDesc()).thenReturn(
 			Mono.just(OrganizationSettings(activeLinkedInAccountId = "acc-1")),
@@ -244,7 +254,8 @@ class LinkedInAppServiceTest {
 				assertTrue(health.ok)
 				assertEquals(created.activeAppId, health.activeAppId)
 				assertEquals("ok", health.checks.first { it.code == "TOKEN_VALID" }.status)
-				assertEquals("ok", health.checks.first { it.code == "PAGE_URN_SET" }.status)
+				assertEquals("ok", health.checks.first { it.code == "AUTHOR_URN_SET" }.status)
+				assertEquals("warn", health.checks.first { it.code == "PAGE_URN_SET" }.status)
 				assertFalse(health.tokenExpiringSoon)
 				assertEquals(account.accessTokenExpiresAt, health.tokenExpiresAt)
 			}

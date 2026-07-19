@@ -93,16 +93,7 @@ class LinkedInOAuthService(
 						val grantedScopes = tokenResponse.scope.orEmpty()
 						log.info("LinkedIn token granted scopes={}", grantedScopes)
 						val expiresIn = tokenResponse.expires_in ?: DEFAULT_EXPIRES_IN_SECONDS
-						fetchUserInfo(accessToken)
-							.flatMap { userInfo ->
-								val urn = resolvePersonUrn(userInfo)
-								if (urn != null) Mono.just(urn) else Mono.empty()
-							}
-							.onErrorResume { ex ->
-								log.warn("LinkedIn userinfo unavailable: {}", ex.message?.take(120))
-								Mono.empty()
-							}
-							.defaultIfEmpty("")
+						resolvePersonUrnFromToken(accessToken)
 							.flatMap { userUrnOrEmpty ->
 								persistConnected(
 									accountId = pending.accountId,
@@ -190,8 +181,9 @@ class LinkedInOAuthService(
 								blockers += LinkedInPublishBlockers.ERROR_STATUS
 							active.status != LinkedInConnectionStatus.CONNECTED ->
 								blockers += LinkedInPublishBlockers.NOT_CONNECTED
-							active.linkedInOrganizationUrn.isNullOrBlank() ->
-								blockers += LinkedInPublishBlockers.MISSING_ORG_URN
+							active.linkedInUserUrn.isNullOrBlank() &&
+								active.linkedInOrganizationUrn.isNullOrBlank() ->
+								blockers += LinkedInPublishBlockers.MISSING_PERSON_URN
 							active.accessTokenExpiresAt?.isAfter(Instant.now()) != true &&
 								active.status == LinkedInConnectionStatus.CONNECTED ->
 								blockers += LinkedInPublishBlockers.EXPIRED
@@ -380,6 +372,41 @@ class LinkedInOAuthService(
 			.headers { headers -> headers.setBearerAuth(accessToken) }
 			.retrieve()
 			.bodyToMono(LinkedInUserInfoResponse::class.java)
+	}
+
+	/** OpenID `/userinfo` puis fallback `/v2/me` → `urn:li:person:{id}`. */
+	private fun resolvePersonUrnFromToken(accessToken: String): Mono<String> =
+		fetchUserInfo(accessToken)
+			.flatMap { info ->
+				val urn = resolvePersonUrn(info)
+				if (urn != null) Mono.just(urn) else Mono.empty()
+			}
+			.onErrorResume { ex ->
+				log.warn("LinkedIn userinfo unavailable: {}", ex.message?.take(120))
+				Mono.empty()
+			}
+			.switchIfEmpty(fetchPersonUrnFromMe(accessToken))
+			.defaultIfEmpty("")
+
+	private fun fetchPersonUrnFromMe(accessToken: String): Mono<String> {
+		val meUrl = linkedInProperties.apiBaseUrl.trimEnd('/') + "/me"
+		return webClient.get()
+			.uri(meUrl)
+			.headers { headers -> headers.setBearerAuth(accessToken) }
+			.retrieve()
+			.bodyToMono(object : org.springframework.core.ParameterizedTypeReference<Map<String, Any?>>() {})
+			.flatMap { body ->
+				val id = (body["id"] as? String)?.trim()?.takeIf { it.isNotEmpty() }
+				when {
+					id == null -> Mono.empty()
+					id.startsWith("urn:li:") -> Mono.just(id)
+					else -> Mono.just("urn:li:person:$id")
+				}
+			}
+			.onErrorResume { ex ->
+				log.warn("LinkedIn /me unavailable: {}", ex.message?.take(120))
+				Mono.empty()
+			}
 	}
 
 	private fun persistConnected(

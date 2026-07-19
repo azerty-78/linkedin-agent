@@ -60,6 +60,10 @@ object LinkedInPublishBlockers {
 	const val NO_ACTIVE_APP = "NO_ACTIVE_APP"
 	const val NO_ACTIVE_ACCOUNT = "NO_ACTIVE_ACCOUNT"
 	const val NOT_CONNECTED = "NOT_CONNECTED"
+	/** Profil perso requis pour publier (priorité actuelle). */
+	const val MISSING_PERSON_URN = "MISSING_PERSON_URN"
+	/** Page org — optionnel ; ne bloque plus si person URN présent. */
+	@Deprecated("Page org optionnelle — préférer MISSING_PERSON_URN")
 	const val MISSING_ORG_URN = "MISSING_ORG_URN"
 	const val EXPIRED = "EXPIRED"
 	const val ERROR_STATUS = "ERROR_STATUS"

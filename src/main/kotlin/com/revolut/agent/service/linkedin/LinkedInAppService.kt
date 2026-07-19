@@ -297,9 +297,9 @@ class LinkedInAppService(
 			.map { LinkedInAppAuditExportResponse(events = it) }
 
 	/**
-	 * Diagnostic app active + token OAuth + Page URN.
+	 * Diagnostic app active + token OAuth + auteur profil (person URN).
+	 * Page org = optionnel (`warn` seulement).
 	 * N’obtient **pas** de token — pour ça : `POST /api/linkedin/accounts/connect`.
-	 * Status checks : `ok` | `warn` | `fail` (minuscules, contrat front).
 	 */
 	fun health(
 		organizationId: String = LinkedInApp.DEFAULT_ORGANIZATION_ID,
@@ -331,12 +331,17 @@ class LinkedInAppService(
 			checks += LinkedInAppHealthCheck(
 				"TOKEN_VALID",
 				STATUS_FAIL,
-				"Aucun token OAuth — connectez une Page",
+				"Aucun token OAuth — connectez un compte",
+			)
+			checks += LinkedInAppHealthCheck(
+				"AUTHOR_URN_SET",
+				STATUS_FAIL,
+				"Aucun profil LinkedIn (person URN)",
 			)
 			checks += LinkedInAppHealthCheck(
 				"PAGE_URN_SET",
-				STATUS_FAIL,
-				"Aucun compte LinkedIn / Page liée",
+				STATUS_WARN,
+				"Page organisation absente (optionnel — publication profil OK)",
 			)
 			return Mono.just(
 				LinkedInAppHealthResponse(
@@ -407,13 +412,14 @@ class LinkedInAppService(
 					checks += LinkedInAppHealthCheck(
 						"TOKEN_VALID",
 						STATUS_FAIL,
-						"Aucun token OAuth — connectez une Page",
+						"Aucun token OAuth — connectez un compte",
 					)
 					checks += LinkedInAppHealthCheck(
-						"PAGE_URN_SET",
+						"AUTHOR_URN_SET",
 						STATUS_FAIL,
-						"Aucun compte LinkedIn / Page liée",
+						"Aucun profil LinkedIn (person URN)",
 					)
+					checks += pageUrnCheck(null)
 				}
 				account.status != LinkedInConnectionStatus.CONNECTED ||
 					account.encryptedAccessToken.isNullOrBlank() -> {
@@ -422,6 +428,7 @@ class LinkedInAppService(
 						STATUS_FAIL,
 						"Aucun token OAuth — reconnectez le compte",
 					)
+					checks += authorUrnCheck(account.linkedInUserUrn)
 					checks += pageUrnCheck(account.linkedInOrganizationUrn)
 				}
 				else -> {
@@ -454,6 +461,7 @@ class LinkedInAppService(
 								"Token OAuth valide",
 							)
 					}
+					checks += authorUrnCheck(account.linkedInUserUrn)
 					checks += pageUrnCheck(account.linkedInOrganizationUrn)
 				}
 			}
@@ -469,12 +477,24 @@ class LinkedInAppService(
 		}
 	}
 
+	private fun authorUrnCheck(urn: String?): LinkedInAppHealthCheck =
+		if (urn.isNullOrBlank()) {
+			LinkedInAppHealthCheck(
+				"AUTHOR_URN_SET",
+				STATUS_FAIL,
+				"Profil perso (person URN) manquant — reconnectez OAuth",
+			)
+		} else {
+			LinkedInAppHealthCheck("AUTHOR_URN_SET", STATUS_OK, "Profil perso configuré")
+		}
+
+	/** Page org optionnelle — jamais `fail` (ne bloque pas `ok` global). */
 	private fun pageUrnCheck(urn: String?): LinkedInAppHealthCheck =
 		if (urn.isNullOrBlank()) {
 			LinkedInAppHealthCheck(
 				"PAGE_URN_SET",
-				STATUS_FAIL,
-				"Aucun compte LinkedIn / Page liée",
+				STATUS_WARN,
+				"Page organisation absente (optionnel — publication profil OK)",
 			)
 		} else {
 			LinkedInAppHealthCheck("PAGE_URN_SET", STATUS_OK, "URN Page configuré")

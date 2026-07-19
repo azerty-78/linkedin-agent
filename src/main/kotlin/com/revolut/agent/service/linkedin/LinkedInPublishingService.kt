@@ -33,7 +33,8 @@ class LinkedInPublishingService(
 	private val webClient: WebClient = webClientBuilder.clone().build()
 
 	/**
-	 * Publie [content] sur la **Page entreprise** du compte LinkedIn **actif**.
+	 * Publie [content] sur le **profil perso** du compte LinkedIn **actif**
+	 * (author = `linkedInUserUrn`). Page org seulement si person absent et URN org fourni.
 	 */
 	fun publish(content: String, aiProvider: LlmProvider): Mono<PublicationRecord> {
 		val trimmed = content.trim()
@@ -56,7 +57,7 @@ class LinkedInPublishingService(
 
 				publicationRecordRepository.save(pending)
 					.flatMap { saved ->
-						callUgcPostsApi(accessToken, targetUrn, trimmed)
+						publishToLinkedIn(accessToken, targetUrn, trimmed)
 							.flatMap { postId ->
 								publicationRecordRepository.save(
 									saved.copy(
@@ -70,7 +71,7 @@ class LinkedInPublishingService(
 							.onErrorResume { error ->
 								val message = readablePublishError(error)
 								log.warn(
-									"LinkedIn UGC publish failed | recordId={} | httpOrCause={}",
+									"LinkedIn publish failed | recordId={} | httpOrCause={}",
 									saved.id,
 									summarizeErrorForLog(error),
 								)
@@ -144,16 +145,21 @@ class LinkedInPublishingService(
 	}
 
 	/**
-	 * Cible : Page entreprise uniquement ([LinkedInConnection.linkedInOrganizationUrn]).
-	 * Le profil perso ([LinkedInConnection.linkedInUserUrn]) sert à l'OAuth / identité admin,
-	 * pas comme auteur du post. Pas de repost vers le feed personnel.
+	 * Auteur par défaut = profil perso (`urn:li:person:…`).
+	 * Page org uniquement si person URN absent et org URN fourni (mode futur).
 	 */
 	private fun resolveTargetUrn(connection: LinkedInConnection): String {
+		val personUrn = connection.linkedInUserUrn?.trim()?.takeIf { it.isNotEmpty() }
+		if (personUrn != null) {
+			require(personUrn.startsWith("urn:li:person:")) {
+				"linkedInUserUrn must start with urn:li:person:"
+			}
+			return personUrn
+		}
 		val orgUrn = connection.linkedInOrganizationUrn?.trim()?.takeIf { it.isNotEmpty() }
 			?: throw LinkedInPublishingException(
-				"URN de la Page LinkedIn manquant. " +
-					"Renseignez-le via PUT /api/linkedin/organization-urn " +
-					"(ex. urn:li:organization:123456789).",
+				"Profil LinkedIn (person URN) manquant. Reconnectez OAuth via " +
+					"POST /api/linkedin/accounts/connect (scopes openid + w_member_social).",
 			)
 		require(orgUrn.startsWith("urn:li:organization:")) {
 			"linkedInOrganizationUrn must start with urn:li:organization:"
@@ -161,11 +167,83 @@ class LinkedInPublishingService(
 		return orgUrn
 	}
 
+	private fun publishToLinkedIn(
+		accessToken: String,
+		authorUrn: String,
+		text: String,
+	): Mono<String> =
+		if (authorUrn.startsWith("urn:li:person:")) {
+			callMemberUgcPostsApi(accessToken, authorUrn, text)
+		} else {
+			callOrganizationPostsApi(accessToken, authorUrn, text)
+		}
+
 	/**
-	 * POST https://api.linkedin.com/rest/posts (Posts API — remplace l'ancien /v2/ugcPosts).
-	 * Id du post : header `x-restli-id` (body souvent vide en 201).
+	 * Share on LinkedIn — profil membre (`w_member_social`).
+	 * POST https://api.linkedin.com/v2/ugcPosts
 	 */
-	private fun callUgcPostsApi(
+	private fun callMemberUgcPostsApi(
+		accessToken: String,
+		authorUrn: String,
+		text: String,
+	): Mono<String> {
+		val ugcUrl = linkedInProperties.apiBaseUrl.trimEnd('/') + "/ugcPosts"
+		val body = mapOf(
+			"author" to authorUrn,
+			"lifecycleState" to "PUBLISHED",
+			"specificContent" to mapOf(
+				"com.linkedin.ugc.ShareContent" to mapOf(
+					"shareCommentary" to mapOf("text" to text),
+					"shareMediaCategory" to "NONE",
+				),
+			),
+			"visibility" to mapOf(
+				"com.linkedin.ugc.MemberNetworkVisibility" to "PUBLIC",
+			),
+		)
+
+		log.info(
+			"LinkedIn UGC (member) publish started | authorUrn={} | contentLength={}",
+			authorUrn,
+			text.length,
+		)
+
+		return webClient.post()
+			.uri(ugcUrl)
+			.contentType(MediaType.APPLICATION_JSON)
+			.header(HttpHeaders.AUTHORIZATION, "Bearer $accessToken")
+			.header(RESTLI_PROTOCOL_HEADER, RESTLI_PROTOCOL_VERSION)
+			.bodyValue(body)
+			.exchangeToMono { response ->
+				val status = response.statusCode()
+				val headers = response.headers().asHttpHeaders()
+				val postId = extractPostId(headers)
+
+				if (status.is2xxSuccessful) {
+					response.releaseBody().then(
+						if (!postId.isNullOrBlank()) {
+							log.info("LinkedIn UGC publish succeeded | postId={}", postId)
+							Mono.just(postId)
+						} else {
+							response.bodyToMono(String::class.java).defaultIfEmpty("").map { raw ->
+								val fromBody = Regex("\"id\"\\s*:\\s*\"([^\"]+)\"").find(raw)?.groupValues?.get(1)
+								(fromBody ?: "unknown").also {
+									log.info("LinkedIn UGC publish succeeded | postId={}", it)
+								}
+							}
+						},
+					)
+				} else {
+					response.createException().flatMap { Mono.error(it) }
+				}
+			}
+	}
+
+	/**
+	 * Posts API org (Community Management) — réservé mode Page.
+	 * POST https://api.linkedin.com/rest/posts
+	 */
+	private fun callOrganizationPostsApi(
 		accessToken: String,
 		authorUrn: String,
 		text: String,
@@ -174,7 +252,7 @@ class LinkedInPublishingService(
 		val body = buildPostsApiBody(authorUrn, text)
 
 		log.info(
-			"LinkedIn Posts API publish started | authorUrn={} | contentLength={} | apiVersion={}",
+			"LinkedIn Posts API (org) publish started | authorUrn={} | contentLength={} | apiVersion={}",
 			authorUrn,
 			text.length,
 			linkedInProperties.apiVersion,
@@ -246,11 +324,10 @@ class LinkedInPublishingService(
 			val linkedInDetail = sanitizeLinkedInErrorBody(http.responseBodyAsString)
 			val base = when (http.statusCode.value()) {
 				401 -> "Token LinkedIn invalide ou révoqué — reconnectez-vous via /api/linkedin/auth-url."
-				403 -> "Permission refusée (403). Pour publier sur une Page : " +
-					"1) scope w_organization_social (Community Management / Share), " +
-					"2) reconnecter OAuth, " +
-					"3) compte admin de la Page, " +
-					"4) URN Page renseigné (PUT /organization-urn)."
+				403 -> "Permission refusée (403). Pour publier sur votre profil : " +
+					"1) scopes openid profile email w_member_social, " +
+					"2) reconnecter OAuth (Login LinkedIn), " +
+					"3) person URN présent (health AUTHOR_URN_SET)."
 				422 -> "LinkedIn a rejeté le contenu du post (format ou politique)."
 				429 -> "Quota LinkedIn dépassé (rate limit) — réessayez plus tard."
 				in 500..599 -> "Erreur serveur LinkedIn (${http.statusCode.value()}) — réessayez plus tard."

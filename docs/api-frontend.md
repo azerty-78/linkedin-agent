@@ -670,7 +670,8 @@ Auth Bearer sauf `/api/linkedin/callback` (public).
 | `CREDENTIALS_PRESENT` | Client ID + secret déchiffrable |
 | `CLIENT_ID_FORMAT` | Regex `^[a-zA-Z0-9]{8,64}$` (`warn` si douteux) |
 | `TOKEN_VALID` | Token OAuth compte actif non expiré (`warn` si &lt; 7 j) |
-| `PAGE_URN_SET` | `organizationUrn` sur le compte actif |
+| `AUTHOR_URN_SET` | `linkedInUserUrn` (`urn:li:person:…`) présent |
+| `PAGE_URN_SET` | Page org — **`warn` seulement** si absente (jamais fail) |
 
 `ok` global = aucun check `fail` (`warn` OK). Status en **minuscules**.  
 **Rechecker ≠ obtenir un token** — pour le token : `POST /api/linkedin/accounts/connect`.
@@ -683,16 +684,37 @@ Migration boot : settings legacy → app « Default » active si 0 apps.
 
 | Méthode | Route | Rôle |
 |---------|-------|------|
-| `POST` | `/api/linkedin/accounts/connect` | App active → `authorizationUrl` + `accountId` |
-| `GET` | `/api/linkedin/callback` | Public — échange code → token chiffré → redirect front `?connected=1` |
+| `POST` | `/api/linkedin/accounts/connect` | App active → `authorizationUrl` (scopes member) + `accountId` |
+| `GET` | `/api/linkedin/callback` | Public — token + **person URN** → redirect `?connected=1` |
 | `GET` | `/api/linkedin/accounts` | Liste comptes |
 | `PUT` | `/api/linkedin/accounts/{id}/activate` | Compte actif (publish) |
 | `GET` | `/api/linkedin/accounts/{id}/auth-url` | Reconnect token |
 | `GET` | `/api/linkedin/status` | Legacy 1 compte |
 
-Les champs settings `linkedInClientId` / masked (lecture) reflètent l'**app active**.
+Publish cible par défaut = **`linkedInUserUrn`** (profil). URN Page = optionnel.
 
-Après OAuth réussi + URN Page, `GET …/apps/health` passe `TOKEN_VALID` + `PAGE_URN_SET` en `ok`.
+Après OAuth réussi, health : `TOKEN_VALID` + `AUTHOR_URN_SET` = `ok` ; `PAGE_URN_SET` peut rester `warn`.
+
+### 8.1bis Readiness
+
+`GET /api/publications/readiness` :
+
+```json
+{
+  "ready": true,
+  "linkedInConnected": true,
+  "linkedInAccountLabel": "Mon profil",
+  "personUrn": "urn:li:person:xxxx",
+  "organizationUrn": null,
+  "publishTarget": "PERSON",
+  "activeAppConfigured": true,
+  "hasLlmKey": true,
+  "reasons": []
+}
+```
+
+`ready` si connecté + **personUrn** (ou org un jour) + app + clé LLM.  
+Plus de hard fail `ORGANIZATION_URN_MISSING` si `personUrn` est là.
 
 ### 8.2 Summary
 
@@ -711,7 +733,8 @@ OAuth / publish-test utilisent l'**app active** (`getActiveCredentials`).
 
 ### 8.4 Scopes
 
-Défaut : `w_organization_social r_organization_social`.
+Défaut : `openid profile email w_member_social` (profil perso).  
+Community Management / `w_organization_social` = plus tard.
 
 ---
 
